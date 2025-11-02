@@ -1,0 +1,221 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// Énumération pour les types d'utilisateurs
+enum UserType {
+  TENANT
+  AGENT
+}
+
+// Énumération pour les types de propriétés
+enum PropertyType {
+  STUDIO
+  CHAMBRE
+  APPARTEMENT
+  MAISON
+  DUPLEX
+}
+
+// Énumération pour le statut de vérification
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Énumération pour le statut des propriétés
+enum PropertyStatus {
+  ACTIVE
+  RENTED
+  INACTIVE
+}
+
+// Énumération pour les plans d'abonnement
+enum SubscriptionPlan {
+  FREE
+  BASIC
+  PREMIUM
+}
+
+// Modèle Utilisateur
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  phone     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  avatar    String?
+  userType  UserType
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  agent         Agent?
+  favorites     Favorite[]
+  reviews       Review[]
+  sentMessages  Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+  searches      SavedSearch[]
+
+  @@map("users")
+}
+
+// Modèle Agent Immobilier
+model Agent {
+  id                 String             @id @default(auto()) @map("_id") @db.ObjectId
+  userId             String             @unique @db.ObjectId
+  businessName       String
+  license            String?
+  idCardNumber       String
+  idCardPhoto        String
+  profilePhoto       String
+  isVerified         Boolean            @default(false)
+  verificationStatus VerificationStatus @default(PENDING)
+  rating             Float              @default(0)
+  reviewCount        Int                @default(0)
+  subscriptionPlan   SubscriptionPlan   @default(FREE)
+  subscriptionExpiry DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  // Relations
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  properties Property[]
+  reviews    Review[]
+
+  @@map("agents")
+}
+
+// Modèle Propriété
+model Property {
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
+  agentId     String         @db.ObjectId
+  title       String
+  description String
+  type        PropertyType
+  price       Int // Prix mensuel en FCFA
+  deposit     Int // Caution en FCFA
+  fees        Int? // Frais d'agence en FCFA
+  
+  // Localisation
+  address      String
+  city         String
+  neighborhood String
+  latitude     Float
+  longitude    Float
+  
+  // Caractéristiques
+  bedrooms      Int
+  bathrooms     Int
+  area          Int // Surface en m²
+  furnished     Boolean @default(false)
+  airConditioned Boolean @default(false)
+  parking       Boolean @default(false)
+  security      Boolean @default(false)
+  internet      Boolean @default(false)
+  water         Boolean @default(false)
+  electricity   Boolean @default(false)
+  
+  // Métadonnées
+  images        String[] // URLs des images
+  isAvailable   Boolean        @default(true)
+  availableFrom DateTime?
+  views         Int            @default(0)
+  status        PropertyStatus @default(ACTIVE)
+  isPremium     Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // Relations
+  agent     Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  favorites Favorite[]
+  reviews   Review[]
+  messages  Message[]
+
+  @@map("properties")
+}
+
+// Modèle Favoris
+model Favorite {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @db.ObjectId
+  propertyId String   @db.ObjectId
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId])
+  @@map("favorites")
+}
+
+// Modèle Avis
+model Review {
+  id         String  @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String  @db.ObjectId
+  agentId    String  @db.ObjectId
+  propertyId String? @db.ObjectId
+  rating     Int // 1-5 étoiles
+  comment    String
+  
+  // Aspects détaillés
+  communication      Int
+  honesty           Int
+  responsiveness    Int
+  propertyAccuracy  Int
+  
+  isVerified Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent    Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@map("reviews")
+}
+
+// Modèle Messages
+model Message {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  senderId   String   @db.ObjectId
+  receiverId String   @db.ObjectId
+  propertyId String?  @db.ObjectId
+  content    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  // Relations
+  sender   User      @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User      @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@map("messages")
+}
+
+// Modèle Recherches Sauvegardées
+model SavedSearch {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  name        String
+  filters     Json // Stockage des critères de recherche
+  resultCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("saved_searches")
+}
