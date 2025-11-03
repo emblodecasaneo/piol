@@ -137,14 +137,30 @@ router.get('/conversation/:otherUserId', authenticateToken, async (req, res) => 
             select: {
               id: true,
               firstName: true,
-              lastName: true
+              lastName: true,
+              userType: true,
+              agent: {
+                select: {
+                  id: true,
+                  businessName: true,
+                  isVerified: true
+                }
+              }
             }
           },
           receiver: {
             select: {
               id: true,
               firstName: true,
-              lastName: true
+              lastName: true,
+              userType: true,
+              agent: {
+                select: {
+                  id: true,
+                  businessName: true,
+                  isVerified: true
+                }
+              }
             }
           },
           property: {

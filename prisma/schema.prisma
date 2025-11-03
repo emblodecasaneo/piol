@@ -46,6 +46,14 @@ enum SubscriptionPlan {
   PREMIUM
 }
 
+// Énumération pour les statuts de rendez-vous
+enum AppointmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 // Modèle Utilisateur
 model User {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -66,6 +74,7 @@ model User {
   sentMessages  Message[] @relation("SentMessages")
   receivedMessages Message[] @relation("ReceivedMessages")
   searches      SavedSearch[]
+  requestedAppointments Appointment[] @relation("RequestedAppointments")
 
   @@map("users")
 }
@@ -103,6 +112,7 @@ model Agent {
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   properties Property[]
   reviews    Review[]
+  appointments Appointment[]
 
   @@map("agents")
 }
@@ -204,6 +214,7 @@ model Property {
   favorites    Favorite[]
   reviews      Review[]
   messages     Message[]
+  appointments Appointment[]
 
   @@map("properties")
 }
@@ -281,4 +292,26 @@ model SavedSearch {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("saved_searches")
+}
+
+// Modèle Rendez-vous
+model Appointment {
+  id               String            @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId         String            @db.ObjectId // Locataire qui demande
+  agentId          String            @db.ObjectId // Agent qui valide
+  propertyId       String            @db.ObjectId // Propriété concernée
+  status           AppointmentStatus @default(PENDING)
+  requestedDateTime DateTime         // Date/heure demandée par le locataire
+  scheduledDateTime DateTime?        // Date/heure planifiée (confirmée par l'agent)
+  message          String?           // Message optionnel du locataire
+  agentNotes       String?           // Notes optionnelles de l'agent
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  // Relations
+  tenant   User     @relation("RequestedAppointments", fields: [tenantId], references: [id], onDelete: Cascade)
+  agent    Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("appointments")
 }
