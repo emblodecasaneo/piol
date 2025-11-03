@@ -313,15 +313,28 @@ function buildWhereClause(filters) {
         }
     }
     if (filters.location) {
-        if (filters.location.city) {
+        if (filters.location.cityId) {
+            where.cityId = filters.location.cityId;
+        }
+        if (filters.location.neighborhoodId) {
+            where.neighborhoodId = filters.location.neighborhoodId;
+        }
+        if (filters.location.localityId) {
+            where.localityId = filters.location.localityId;
+        }
+        if (filters.location.city && !filters.location.cityId) {
             where.city = {
-                contains: filters.location.city,
-                mode: 'insensitive'
+                name: {
+                    contains: filters.location.city,
+                    mode: 'insensitive'
+                }
             };
         }
-        if (filters.location.neighborhoods && filters.location.neighborhoods.length > 0) {
+        if (filters.location.neighborhoods && filters.location.neighborhoods.length > 0 && !filters.location.neighborhoodId) {
             where.neighborhood = {
-                in: filters.location.neighborhoods
+                name: {
+                    in: filters.location.neighborhoods
+                }
             };
         }
     }

@@ -9,28 +9,25 @@ const auth_1 = require("../middleware/auth");
 const router = express_1.default.Router();
 router.get('/', async (req, res) => {
     try {
-        const { page = '1', limit = '10', type, city, neighborhood, minPrice, maxPrice, bedrooms, bathrooms, minArea, maxArea, furnished, airConditioned, parking, security, internet, water, electricity, latitude, longitude, radius, sortBy = 'createdAt', sortOrder = 'desc', search } = req.query;
+        const { page = '1', limit = '10', type, cityId, neighborhoodId, localityId, minPrice, maxPrice, bedrooms, bathrooms, minArea, maxArea, furnished, airConditioned, parking, security, internet, water, electricity, latitude, longitude, radius, sortBy = 'createdAt', sortOrder = 'desc', search } = req.query;
         const pageNum = parseInt(page);
         const limitNum = parseInt(limit);
         const skip = (pageNum - 1) * limitNum;
         const where = {
-            status: 'ACTIVE',
             isAvailable: true
         };
+        console.log('Base WHERE conditions:', where);
         if (type) {
             where.type = type;
         }
-        if (city) {
-            where.city = {
-                contains: city,
-                mode: 'insensitive'
-            };
+        if (cityId) {
+            where.cityId = cityId;
         }
-        if (neighborhood) {
-            where.neighborhood = {
-                contains: neighborhood,
-                mode: 'insensitive'
-            };
+        if (neighborhoodId) {
+            where.neighborhoodId = neighborhoodId;
+        }
+        if (localityId) {
+            where.localityId = localityId;
         }
         if (minPrice || maxPrice) {
             where.price = {};
@@ -78,26 +75,45 @@ router.get('/', async (req, res) => {
             where.electricity = electricity === 'true';
         }
         if (search) {
+            const searchTerm = search;
+            console.log('Searching for:', searchTerm);
             where.OR = [
                 {
                     title: {
-                        contains: search,
+                        contains: searchTerm,
                         mode: 'insensitive'
                     }
                 },
                 {
                     description: {
-                        contains: search,
+                        contains: searchTerm,
                         mode: 'insensitive'
                     }
                 },
                 {
                     address: {
-                        contains: search,
+                        contains: searchTerm,
                         mode: 'insensitive'
+                    }
+                },
+                {
+                    city: {
+                        name: {
+                            contains: searchTerm,
+                            mode: 'insensitive'
+                        }
+                    }
+                },
+                {
+                    neighborhood: {
+                        name: {
+                            contains: searchTerm,
+                            mode: 'insensitive'
+                        }
                     }
                 }
             ];
+            console.log('Search WHERE clause:', JSON.stringify(where.OR, null, 2));
         }
         let geoFilteredProperties;
         if (latitude && longitude && radius) {
@@ -134,6 +150,8 @@ router.get('/', async (req, res) => {
                 ];
             }
         }
+        console.log('Final WHERE clause:', JSON.stringify(where, null, 2));
+        console.log('Query params:', { page, limit, search, type, cityId, neighborhoodId });
         const [properties, total] = await Promise.all([
             index_1.prisma.property.findMany({
                 where,
@@ -142,13 +160,17 @@ router.get('/', async (req, res) => {
                         include: {
                             user: {
                                 select: {
+                                    id: true,
                                     firstName: true,
                                     lastName: true,
                                     phone: true
                                 }
                             }
                         }
-                    }
+                    },
+                    city: true,
+                    neighborhood: true,
+                    locality: true
                 },
                 orderBy,
                 skip,
@@ -156,6 +178,8 @@ router.get('/', async (req, res) => {
             }),
             index_1.prisma.property.count({ where })
         ]);
+        console.log('Found properties:', properties.length);
+        console.log('Total count:', total);
         res.json({
             message: 'Properties retrieved successfully',
             properties,
@@ -175,6 +199,94 @@ router.get('/', async (req, res) => {
         });
     }
 });
+router.get('/my-properties', auth_1.authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const userType = req.user.userType;
+        if (userType !== 'AGENT') {
+            return res.status(403).json({
+                error: 'Access denied',
+                message: 'Only agents can access this endpoint'
+            });
+        }
+        const agent = await index_1.prisma.agent.findUnique({
+            where: { userId }
+        });
+        if (!agent) {
+            return res.status(404).json({
+                error: 'Agent not found',
+                message: 'Agent profile not found'
+            });
+        }
+        const { page = '1', limit = '10', status, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const skip = (pageNum - 1) * limitNum;
+        const where = {
+            agentId: agent.id
+        };
+        if (status) {
+            where.status = status;
+        }
+        const orderBy = {};
+        if (sortBy && ['createdAt', 'updatedAt', 'price', 'views'].includes(sortBy)) {
+            orderBy[sortBy] = sortOrder === 'asc' ? 'asc' : 'desc';
+        }
+        else {
+            orderBy.createdAt = 'desc';
+        }
+        const [properties, total] = await Promise.all([
+            index_1.prisma.property.findMany({
+                where,
+                include: {
+                    city: true,
+                    neighborhood: true,
+                    locality: true,
+                    reviews: {
+                        select: {
+                            id: true,
+                            rating: true
+                        }
+                    },
+                    favorites: {
+                        select: {
+                            id: true
+                        }
+                    }
+                },
+                orderBy,
+                skip,
+                take: limitNum
+            }),
+            index_1.prisma.property.count({ where })
+        ]);
+        const propertiesWithStats = properties.map(property => ({
+            ...property,
+            averageRating: property.reviews.length > 0
+                ? property.reviews.reduce((sum, review) => sum + review.rating, 0) / property.reviews.length
+                : 0,
+            reviewCount: property.reviews.length,
+            favoriteCount: property.favorites.length
+        }));
+        res.json({
+            message: 'Agent properties retrieved successfully',
+            properties: propertiesWithStats,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum)
+            }
+        });
+    }
+    catch (error) {
+        console.error('Get agent properties error:', error);
+        res.status(500).json({
+            error: 'Failed to get agent properties',
+            message: 'An error occurred while retrieving agent properties'
+        });
+    }
+});
 router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -185,6 +297,7 @@ router.get('/:id', async (req, res) => {
                     include: {
                         user: {
                             select: {
+                                id: true,
                                 firstName: true,
                                 lastName: true,
                                 phone: true,
@@ -193,6 +306,9 @@ router.get('/:id', async (req, res) => {
                         }
                     }
                 },
+                city: true,
+                neighborhood: true,
+                locality: true,
                 reviews: {
                     include: {
                         user: {
@@ -254,11 +370,11 @@ router.post('/', auth_1.authenticateToken, async (req, res) => {
                 message: 'Agent profile not found'
             });
         }
-        const { title, description, type, price, deposit, fees, address, city, neighborhood, latitude, longitude, bedrooms, bathrooms, area, furnished, airConditioned, parking, security, internet, water, electricity, images, availableFrom } = req.body;
-        if (!title || !description || !type || !price || !address || !city || !neighborhood) {
+        const { title, description, type, price, deposit, fees, address, cityId, neighborhoodId, localityId, latitude, longitude, bedrooms, bathrooms, area, furnished, airConditioned, parking, security, internet, water, electricity, images, availableFrom } = req.body;
+        if (!title || !description || !type || !price || !address || !cityId || !neighborhoodId) {
             return res.status(400).json({
                 error: 'Missing required fields',
-                message: 'Title, description, type, price, address, city, and neighborhood are required'
+                message: 'Title, description, type, price, address, cityId, and neighborhoodId are required'
             });
         }
         const property = await index_1.prisma.property.create({
@@ -271,10 +387,11 @@ router.post('/', auth_1.authenticateToken, async (req, res) => {
                 deposit: deposit ? parseInt(deposit) : 0,
                 fees: fees ? parseInt(fees) : null,
                 address,
-                city,
-                neighborhood,
-                latitude: latitude ? parseFloat(latitude) : 0,
-                longitude: longitude ? parseFloat(longitude) : 0,
+                cityId,
+                neighborhoodId,
+                localityId: localityId || null,
+                latitude: latitude ? parseFloat(latitude) : null,
+                longitude: longitude ? parseFloat(longitude) : null,
                 bedrooms: parseInt(bedrooms) || 1,
                 bathrooms: parseInt(bathrooms) || 1,
                 area: parseInt(area) || 0,
@@ -293,12 +410,16 @@ router.post('/', auth_1.authenticateToken, async (req, res) => {
                     include: {
                         user: {
                             select: {
+                                id: true,
                                 firstName: true,
                                 lastName: true
                             }
                         }
                     }
-                }
+                },
+                city: true,
+                neighborhood: true,
+                locality: true
             }
         });
         res.status(201).json({
@@ -347,12 +468,16 @@ router.put('/:id', auth_1.authenticateToken, async (req, res) => {
                     include: {
                         user: {
                             select: {
+                                id: true,
                                 firstName: true,
                                 lastName: true
                             }
                         }
                     }
-                }
+                },
+                city: true,
+                neighborhood: true,
+                locality: true
             }
         });
         res.json({
@@ -439,17 +564,23 @@ router.get('/nearby', async (req, res) => {
                             }
                         }
                     }
-                }
+                },
+                city: true,
+                neighborhood: true,
+                locality: true
             },
             orderBy: [
                 { isPremium: 'desc' },
                 { createdAt: 'desc' }
             ]
         });
-        const propertiesWithDistance = properties.map(property => ({
+        const propertiesWithDistance = properties
+            .filter(property => property.latitude !== null && property.longitude !== null)
+            .map(property => ({
             ...property,
             distance: calculateDistance(lat, lng, property.latitude, property.longitude)
-        })).sort((a, b) => a.distance - b.distance);
+        }))
+            .sort((a, b) => a.distance - b.distance);
         res.json({
             message: 'Nearby properties retrieved successfully',
             properties: propertiesWithDistance,
@@ -481,8 +612,8 @@ async function getPropertiesWithinRadius(centerLat, centerLng, radiusKm, limit) 
             where: {
                 status: 'ACTIVE',
                 isAvailable: true,
-                latitude: { not: 0 },
-                longitude: { not: 0 }
+                latitude: { not: null },
+                longitude: { not: null }
             },
             select: {
                 id: true,
@@ -491,6 +622,7 @@ async function getPropertiesWithinRadius(centerLat, centerLng, radiusKm, limit) 
             }
         });
         const propertiesWithinRadius = allProperties
+            .filter(property => property.latitude !== null && property.longitude !== null)
             .map(property => ({
             id: property.id,
             distance: calculateDistance(centerLat, centerLng, property.latitude, property.longitude)

@@ -12,6 +12,7 @@ const helmet_1 = __importDefault(require("helmet"));
 const morgan_1 = __importDefault(require("morgan"));
 const agents_1 = __importDefault(require("./routes/agents"));
 const auth_1 = __importDefault(require("./routes/auth"));
+const locations_1 = __importDefault(require("./routes/locations"));
 const messages_1 = __importDefault(require("./routes/messages"));
 const properties_1 = __importDefault(require("./routes/properties"));
 const reviews_1 = __importDefault(require("./routes/reviews"));
@@ -33,6 +34,7 @@ app.use('/api/agents', agents_1.default);
 app.use('/api/messages', messages_1.default);
 app.use('/api/reviews', reviews_1.default);
 app.use('/api/saved-searches', saved_searches_1.default);
+app.use('/api/locations', locations_1.default);
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'OK',

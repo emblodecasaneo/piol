@@ -77,8 +77,19 @@ model Agent {
   businessName       String
   license            String?
   idCardNumber       String
-  idCardPhoto        String
-  profilePhoto       String
+  
+  // Documents
+  idCardPhoto        String?
+  profilePhoto       String?
+  businessLicense    String? // Licence professionnelle
+  locationPlan       String? // Plan de localisation
+  proofOfAddress     String? // Justificatif de domicile
+  businessCertificate String? // Certificat d'entreprise
+  
+  // Statuts de vérification des documents
+  documentsStatus    Json? // Statut de chaque document {cni: 'verified', businessLicense: 'pending', etc.}
+  rejectionReason    String? // Raison du rejet si applicable
+  
   isVerified         Boolean            @default(false)
   verificationStatus VerificationStatus @default(PENDING)
   rating             Float              @default(0)
@@ -96,6 +107,54 @@ model Agent {
   @@map("agents")
 }
 
+// Modèle Ville
+model City {
+  id         String     @id @default(auto()) @map("_id") @db.ObjectId
+  name       String     @unique
+  region     String // Région administrative
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  // Relations
+  neighborhoods Neighborhood[]
+  properties    Property[]
+
+  @@map("cities")
+}
+
+// Modèle Quartier
+model Neighborhood {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  cityId     String   @db.ObjectId
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  city       City       @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  localities Locality[]
+  properties Property[]
+
+  @@unique([name, cityId])
+  @@map("neighborhoods")
+}
+
+// Modèle Lieu-dit
+model Locality {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  neighborhoodId String       @db.ObjectId
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Relations
+  neighborhood Neighborhood @relation(fields: [neighborhoodId], references: [id], onDelete: Cascade)
+  properties   Property[]
+
+  @@unique([name, neighborhoodId])
+  @@map("localities")
+}
+
 // Modèle Propriété
 model Property {
   id          String         @id @default(auto()) @map("_id") @db.ObjectId
@@ -109,10 +168,11 @@ model Property {
   
   // Localisation
   address      String
-  city         String
-  neighborhood String
-  latitude     Float
-  longitude    Float
+  cityId       String         @db.ObjectId
+  neighborhoodId String       @db.ObjectId
+  localityId   String?        @db.ObjectId
+  latitude     Float?         // Optionnel maintenant
+  longitude    Float?         // Optionnel maintenant
   
   // Caractéristiques
   bedrooms      Int
@@ -137,10 +197,13 @@ model Property {
   updatedAt     DateTime       @updatedAt
 
   // Relations
-  agent     Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  favorites Favorite[]
-  reviews   Review[]
-  messages  Message[]
+  agent        Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  city         City          @relation(fields: [cityId], references: [id])
+  neighborhood Neighborhood  @relation(fields: [neighborhoodId], references: [id])
+  locality     Locality?     @relation(fields: [localityId], references: [id])
+  favorites    Favorite[]
+  reviews      Review[]
+  messages     Message[]
 
   @@map("properties")
 }

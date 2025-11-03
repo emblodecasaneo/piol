@@ -12,6 +12,10 @@ interface SearchFilters {
     max: number;
   };
   location?: {
+    cityId?: string;
+    neighborhoodId?: string;
+    localityId?: string;
+    // Ancien format pour compatibilité
     city?: string;
     neighborhoods?: string[];
     radius?: number;
@@ -406,23 +410,35 @@ function buildWhereClause(filters: SearchFilters): any {
 
   // Filtres par localisation
   if (filters.location) {
-    if (filters.location.city) {
+    if (filters.location.cityId) {
+      where.cityId = filters.location.cityId;
+    }
+
+    if (filters.location.neighborhoodId) {
+      where.neighborhoodId = filters.location.neighborhoodId;
+    }
+
+    if (filters.location.localityId) {
+      where.localityId = filters.location.localityId;
+    }
+
+    // Support ancien format (pour compatibilité)
+    if (filters.location.city && !filters.location.cityId) {
       where.city = {
-        contains: filters.location.city,
-        mode: 'insensitive'
+        name: {
+          contains: filters.location.city,
+          mode: 'insensitive'
+        }
       };
     }
 
-    if (filters.location.neighborhoods && filters.location.neighborhoods.length > 0) {
+    if (filters.location.neighborhoods && filters.location.neighborhoods.length > 0 && !filters.location.neighborhoodId) {
       where.neighborhood = {
-        in: filters.location.neighborhoods
+        name: {
+          in: filters.location.neighborhoods
+        }
       };
     }
-
-    // TODO: Implémenter la recherche par rayon géographique
-    // if (filters.location.radius && filters.location.coordinates) {
-    //   // Recherche géographique avec MongoDB
-    // }
   }
 
   // Filtres par caractéristiques

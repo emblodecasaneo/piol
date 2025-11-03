@@ -4,6 +4,84 @@ import { authenticateToken } from '../middleware/auth';
 
 const router = express.Router();
 
+// Routes spécifiques (doivent être AVANT les routes avec paramètres dynamiques)
+
+// Obtenir les documents d'un agent (agent connecté)
+router.get('/documents', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const userType = (req as any).user.userType;
+
+    if (userType !== 'AGENT') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'Only agents can access their documents'
+      });
+    }
+
+    const agent = await prisma.agent.findUnique({
+      where: { userId }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        error: 'Agent not found',
+        message: 'Agent profile not found'
+      });
+    }
+
+    res.json({
+      message: 'Documents retrieved successfully',
+      documents: agent
+    });
+
+  } catch (error) {
+    console.error('Get agent documents error:', error);
+    res.status(500).json({
+      error: 'Failed to get documents',
+      message: 'An error occurred while retrieving documents'
+    });
+  }
+});
+
+// [ADMIN] Lister les agents en attente de vérification
+router.get('/pending-verification', authenticateToken, async (req, res) => {
+  try {
+    const agents = await prisma.agent.findMany({
+      where: {
+        verificationStatus: 'PENDING'
+      },
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            createdAt: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    res.json({
+      message: 'Pending agents retrieved successfully',
+      agents,
+      total: agents.length
+    });
+
+  } catch (error) {
+    console.error('Get pending agents error:', error);
+    res.status(500).json({
+      error: 'Failed to get pending agents',
+      message: 'An error occurred while retrieving pending agents'
+    });
+  }
+});
+
 // Obtenir tous les agents
 router.get('/', async (req, res) => {
   try {
@@ -310,6 +388,245 @@ router.get('/:id/reviews', async (req, res) => {
     res.status(500).json({
       error: 'Failed to get agent reviews',
       message: 'An error occurred while retrieving agent reviews'
+    });
+  }
+});
+
+// Uploader ou mettre à jour un document (agent connecté)
+router.post('/documents/upload', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const userType = (req as any).user.userType;
+
+    if (userType !== 'AGENT') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'Only agents can upload documents'
+      });
+    }
+
+    const agent = await prisma.agent.findUnique({
+      where: { userId }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        error: 'Agent not found',
+        message: 'Agent profile not found'
+      });
+    }
+
+    const {
+      documentType, // 'cni', 'businessLicense', 'locationPlan', 'proofOfAddress', 'businessCertificate'
+      documentUrl
+    } = req.body;
+
+    if (!documentType || !documentUrl) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'Document type and URL are required'
+      });
+    }
+
+    // Map des types de documents aux champs de la base de données
+    const documentFieldMap: { [key: string]: string } = {
+      cni: 'idCardPhoto',
+      businessLicense: 'businessLicense',
+      locationPlan: 'locationPlan',
+      proofOfAddress: 'proofOfAddress',
+      businessCertificate: 'businessCertificate',
+      profilePhoto: 'profilePhoto'
+    };
+
+    const fieldName = documentFieldMap[documentType];
+    if (!fieldName) {
+      return res.status(400).json({
+        error: 'Invalid document type',
+        message: 'The specified document type is not valid'
+      });
+    }
+
+    // Récupérer le statut actuel des documents
+    const currentStatus = ((agent as any).documentsStatus) || {};
+    
+    // Mettre à jour le statut du document à 'uploaded'
+    const updatedStatus = {
+      ...currentStatus,
+      [documentType]: 'uploaded'
+    };
+
+    // Mettre à jour l'agent avec le nouveau document
+    const updatedAgent = await prisma.agent.update({
+      where: { userId },
+      data: {
+        [fieldName]: documentUrl,
+        documentsStatus: updatedStatus,
+        // Si un document est uploadé, remettre en PENDING pour re-vérification
+        verificationStatus: 'PENDING',
+        isVerified: false
+      } as any
+    });
+
+    res.json({
+      message: 'Document uploaded successfully',
+      agent: updatedAgent
+    });
+
+  } catch (error) {
+    console.error('Upload document error:', error);
+    res.status(500).json({
+      error: 'Failed to upload document',
+      message: 'An error occurred while uploading the document'
+    });
+  }
+});
+
+// [ADMIN] Approuver ou rejeter la vérification d'un agent
+router.post('/verify/:agentId', authenticateToken, async (req, res) => {
+  try {
+    // TODO: Ajouter un middleware pour vérifier que l'utilisateur est admin
+    const { agentId } = req.params;
+    const { action, rejectionReason, documentsStatus } = req.body; // action: 'approve' ou 'reject'
+
+    if (!action || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({
+        error: 'Invalid action',
+        message: 'Action must be either "approve" or "reject"'
+      });
+    }
+
+    if (action === 'reject' && !rejectionReason) {
+      return res.status(400).json({
+        error: 'Missing rejection reason',
+        message: 'A reason is required when rejecting verification'
+      });
+    }
+
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        error: 'Agent not found',
+        message: 'The specified agent does not exist'
+      });
+    }
+
+    const updateData: any = {
+      verificationStatus: action === 'approve' ? 'APPROVED' : 'REJECTED',
+      isVerified: action === 'approve'
+    };
+
+    if (action === 'reject') {
+      updateData.rejectionReason = rejectionReason;
+    } else {
+      updateData.rejectionReason = null;
+    }
+
+    if (documentsStatus) {
+      updateData.documentsStatus = documentsStatus;
+    }
+
+    const updatedAgent = await prisma.agent.update({
+      where: { id: agentId },
+      data: updateData,
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      message: `Agent ${action === 'approve' ? 'approved' : 'rejected'} successfully`,
+      agent: updatedAgent
+    });
+
+  } catch (error) {
+    console.error('Verify agent error:', error);
+    res.status(500).json({
+      error: 'Failed to verify agent',
+      message: 'An error occurred while verifying the agent'
+    });
+  }
+});
+
+// Supprimer un document spécifique
+router.delete('/documents/:documentType', authenticateToken, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const userType = (req as any).user.userType;
+    const { documentType } = req.params;
+
+    if (userType !== 'AGENT') {
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'Only agents can delete documents'
+      });
+    }
+
+    const agent = await prisma.agent.findUnique({
+      where: { userId }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        error: 'Agent not found',
+        message: 'Agent profile not found'
+      });
+    }
+
+    // Map des types de documents
+    const documentFieldMap: { [key: string]: string } = {
+      cni: 'idCardPhoto',
+      businessLicense: 'businessLicense',
+      locationPlan: 'locationPlan',
+      proofOfAddress: 'proofOfAddress',
+      businessCertificate: 'businessCertificate',
+      profilePhoto: 'profilePhoto'
+    };
+
+    const fieldName = documentFieldMap[documentType];
+    if (!fieldName) {
+      return res.status(400).json({
+        error: 'Invalid document type',
+        message: 'The specified document type is not valid'
+      });
+    }
+
+    // Récupérer le statut actuel des documents
+    const currentStatus = ((agent as any).documentsStatus) || {};
+    
+    // Mettre à jour le statut du document à 'pending'
+    const updatedStatus = {
+      ...currentStatus,
+      [documentType]: 'pending'
+    };
+
+    const updatedAgent = await prisma.agent.update({
+      where: { userId },
+      data: {
+        [fieldName]: null,
+        documentsStatus: updatedStatus
+      } as any
+    });
+
+    res.json({
+      message: 'Document deleted successfully',
+      agent: updatedAgent
+    });
+
+  } catch (error) {
+    console.error('Delete document error:', error);
+    res.status(500).json({
+      error: 'Failed to delete document',
+      message: 'An error occurred while deleting the document'
     });
   }
 });

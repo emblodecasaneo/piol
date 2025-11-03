@@ -12,8 +12,9 @@ router.get('/', async (req, res) => {
       page = '1',
       limit = '10',
       type,
-      city,
-      neighborhood,
+      cityId,
+      neighborhoodId,
+      localityId,
       minPrice,
       maxPrice,
       bedrooms,
@@ -50,18 +51,16 @@ router.get('/', async (req, res) => {
       where.type = type as PropertyType;
     }
 
-    if (city) {
-      where.city = {
-        contains: city as string,
-        mode: 'insensitive'
-      };
+    if (cityId) {
+      where.cityId = cityId as string;
     }
 
-    if (neighborhood) {
-      where.neighborhood = {
-        contains: neighborhood as string,
-        mode: 'insensitive'
-      };
+    if (neighborhoodId) {
+      where.neighborhoodId = neighborhoodId as string;
+    }
+
+    if (localityId) {
+      where.localityId = localityId as string;
     }
 
     if (minPrice || maxPrice) {
@@ -143,14 +142,18 @@ router.get('/', async (req, res) => {
         },
         {
           city: {
-            contains: searchTerm,
-            mode: 'insensitive'
+            name: {
+              contains: searchTerm,
+              mode: 'insensitive'
+            }
           }
         },
         {
           neighborhood: {
-            contains: searchTerm,
-            mode: 'insensitive'
+            name: {
+              contains: searchTerm,
+              mode: 'insensitive'
+            }
           }
         }
       ];
@@ -205,7 +208,7 @@ router.get('/', async (req, res) => {
 
     // Debug: Log de la requête finale
     console.log('Final WHERE clause:', JSON.stringify(where, null, 2));
-    console.log('Query params:', { page, limit, search, type, city, neighborhood });
+    console.log('Query params:', { page, limit, search, type, cityId, neighborhoodId });
 
     // Récupérer les propriétés
     const [properties, total] = await Promise.all([
@@ -216,13 +219,17 @@ router.get('/', async (req, res) => {
             include: {
               user: {
                 select: {
+                  id: true,
                   firstName: true,
                   lastName: true,
                   phone: true
                 }
               }
             }
-          }
+          },
+          city: true,
+          neighborhood: true,
+          locality: true
         },
         orderBy,
         skip,
@@ -314,6 +321,9 @@ router.get('/my-properties', authenticateToken, async (req, res) => {
       prisma.property.findMany({
         where,
         include: {
+          city: true,
+          neighborhood: true,
+          locality: true,
           reviews: {
             select: {
               id: true,
@@ -375,6 +385,7 @@ router.get('/:id', async (req, res) => {
           include: {
             user: {
               select: {
+                id: true,
                 firstName: true,
                 lastName: true,
                 phone: true,
@@ -383,6 +394,9 @@ router.get('/:id', async (req, res) => {
             }
           }
         },
+        city: true,
+        neighborhood: true,
+        locality: true,
         reviews: {
           include: {
             user: {
@@ -464,8 +478,9 @@ router.post('/', authenticateToken, async (req, res) => {
       deposit,
       fees,
       address,
-      city,
-      neighborhood,
+      cityId,
+      neighborhoodId,
+      localityId,
       latitude,
       longitude,
       bedrooms,
@@ -483,10 +498,10 @@ router.post('/', authenticateToken, async (req, res) => {
     } = req.body;
 
     // Validation des champs requis
-    if (!title || !description || !type || !price || !address || !city || !neighborhood) {
+    if (!title || !description || !type || !price || !address || !cityId || !neighborhoodId) {
       return res.status(400).json({
         error: 'Missing required fields',
-        message: 'Title, description, type, price, address, city, and neighborhood are required'
+        message: 'Title, description, type, price, address, cityId, and neighborhoodId are required'
       });
     }
 
@@ -500,10 +515,11 @@ router.post('/', authenticateToken, async (req, res) => {
         deposit: deposit ? parseInt(deposit) : 0,
         fees: fees ? parseInt(fees) : null,
         address,
-        city,
-        neighborhood,
-        latitude: latitude ? parseFloat(latitude) : 0,
-        longitude: longitude ? parseFloat(longitude) : 0,
+        cityId,
+        neighborhoodId,
+        localityId: localityId || null,
+        latitude: latitude ? parseFloat(latitude) : null,
+        longitude: longitude ? parseFloat(longitude) : null,
         bedrooms: parseInt(bedrooms) || 1,
         bathrooms: parseInt(bathrooms) || 1,
         area: parseInt(area) || 0,
@@ -522,12 +538,16 @@ router.post('/', authenticateToken, async (req, res) => {
           include: {
             user: {
               select: {
+                id: true,
                 firstName: true,
                 lastName: true
               }
             }
           }
-        }
+        },
+        city: true,
+        neighborhood: true,
+        locality: true
       }
     });
 
@@ -586,12 +606,16 @@ router.put('/:id', authenticateToken, async (req, res) => {
           include: {
             user: {
               select: {
+                id: true,
                 firstName: true,
                 lastName: true
               }
             }
           }
-        }
+        },
+        city: true,
+        neighborhood: true,
+        locality: true
       }
     });
 
@@ -700,7 +724,10 @@ router.get('/nearby', async (req, res) => {
               }
             }
           }
-        }
+        },
+        city: true,
+        neighborhood: true,
+        locality: true
       },
       orderBy: [
         { isPremium: 'desc' },
@@ -709,10 +736,13 @@ router.get('/nearby', async (req, res) => {
     });
 
     // Calculer la distance pour chaque propriété
-    const propertiesWithDistance = properties.map(property => ({
-      ...property,
-      distance: calculateDistance(lat, lng, property.latitude, property.longitude)
-    })).sort((a, b) => a.distance - b.distance);
+    const propertiesWithDistance = properties
+      .filter(property => property.latitude !== null && property.longitude !== null)
+      .map(property => ({
+        ...property,
+        distance: calculateDistance(lat, lng, property.latitude!, property.longitude!)
+      }))
+      .sort((a, b) => a.distance - b.distance);
 
     res.json({
       message: 'Nearby properties retrieved successfully',
@@ -756,8 +786,8 @@ async function getPropertiesWithinRadius(
       where: {
         status: 'ACTIVE',
         isAvailable: true,
-        latitude: { not: 0 },
-        longitude: { not: 0 }
+        latitude: { not: null },
+        longitude: { not: null }
       },
       select: {
         id: true,
@@ -768,9 +798,10 @@ async function getPropertiesWithinRadius(
 
     // Filtrer par distance
     const propertiesWithinRadius = allProperties
+      .filter(property => property.latitude !== null && property.longitude !== null)
       .map(property => ({
         id: property.id,
-        distance: calculateDistance(centerLat, centerLng, property.latitude, property.longitude)
+        distance: calculateDistance(centerLat, centerLng, property.latitude!, property.longitude!)
       }))
       .filter(property => property.distance <= radiusKm)
       .sort((a, b) => a.distance - b.distance);

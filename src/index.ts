@@ -8,6 +8,7 @@ import morgan from 'morgan';
 // Import routes
 import agentRoutes from './routes/agents';
 import authRoutes from './routes/auth';
+import locationRoutes from './routes/locations';
 import messageRoutes from './routes/messages';
 import propertyRoutes from './routes/properties';
 import reviewRoutes from './routes/reviews';
@@ -39,6 +40,7 @@ app.use('/api/agents', agentRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/saved-searches', savedSearchRoutes);
+app.use('/api/locations', locationRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

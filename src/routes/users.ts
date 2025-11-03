@@ -63,7 +63,8 @@ router.get('/profile', authenticateToken, async (req, res) => {
 router.put('/profile', authenticateToken, async (req, res) => {
   try {
     const userId = (req as any).user.userId;
-    const { firstName, lastName, phone, avatar } = req.body;
+    const userType = (req as any).user.userType;
+    const { firstName, lastName, phone, avatar, businessName } = req.body;
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
@@ -78,8 +79,26 @@ router.put('/profile', authenticateToken, async (req, res) => {
       }
     });
 
+    // Si l'utilisateur est un agent et qu'il y a un businessName, mettre à jour l'agent aussi
+    if (userType === 'AGENT' && businessName) {
+      await prisma.agent.update({
+        where: { userId },
+        data: {
+          businessName
+        }
+      });
+    }
+
+    // Récupérer les données complètes avec l'agent mis à jour
+    const finalUser = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        agent: true
+      }
+    });
+
     // Retourner les données utilisateur (sans le mot de passe)
-    const { password: _, ...userWithoutPassword } = updatedUser;
+    const { password: _, ...userWithoutPassword } = finalUser!;
 
     res.json({
       message: 'Profile updated successfully',
@@ -114,7 +133,10 @@ router.get('/favorites', authenticateToken, async (req, res) => {
                   }
                 }
               }
-            }
+            },
+            city: true,
+            neighborhood: true,
+            locality: true
           }
         }
       },
