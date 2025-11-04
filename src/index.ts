@@ -11,6 +11,8 @@ import appointmentRoutes from './routes/appointments';
 import authRoutes from './routes/auth';
 import locationRoutes from './routes/locations';
 import messageRoutes from './routes/messages';
+import neighborhoodScoreRoutes from './routes/neighborhood-scores';
+import paymentRoutes from './routes/payments';
 import propertyRoutes from './routes/properties';
 import reviewRoutes from './routes/reviews';
 import savedSearchRoutes from './routes/saved-searches';
@@ -43,6 +45,8 @@ app.use('/api/reviews', reviewRoutes);
 app.use('/api/saved-searches', savedSearchRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/appointments', appointmentRoutes);
+app.use('/api/neighborhood-scores', neighborhoodScoreRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -241,9 +241,30 @@ router.get('/', async (req, res) => {
     console.log('Found properties:', properties.length);
     console.log('Total count:', total);
 
+    // 📊 Ajouter les statistiques à chaque propriété
+    const propertiesWithStats = await Promise.all(
+      properties.map(async (property) => {
+        const [favoriteCount, reviewCount, avgRating] = await Promise.all([
+          prisma.favorite.count({ where: { propertyId: property.id } }),
+          prisma.review.count({ where: { agentId: property.agentId } }),
+          prisma.review.aggregate({
+            where: { agentId: property.agentId },
+            _avg: { rating: true }
+          })
+        ]);
+
+        return {
+          ...property,
+          favoriteCount,
+          reviewCount,
+          averageRating: avgRating._avg.rating ? parseFloat(avgRating._avg.rating.toFixed(1)) : 0,
+        };
+      })
+    );
+
     res.json({
       message: 'Properties retrieved successfully',
-      properties,
+      properties: propertiesWithStats,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -395,7 +416,11 @@ router.get('/:id', async (req, res) => {
           }
         },
         city: true,
-        neighborhood: true,
+        neighborhood: {
+          include: {
+            score: true  // 🌟 Inclure le score du quartier
+          }
+        },
         locality: true,
         reviews: {
           include: {
@@ -430,9 +455,31 @@ router.get('/:id', async (req, res) => {
       }
     });
 
+    // 📊 Calculer les statistiques
+    const favoriteCount = await prisma.favorite.count({
+      where: { propertyId: id }
+    });
+
+    const agentReviews = await prisma.review.findMany({
+      where: { agentId: property.agentId }
+    });
+
+    const reviewCount = agentReviews.length;
+    const averageRating = reviewCount > 0
+      ? agentReviews.reduce((sum, r) => sum + r.rating, 0) / reviewCount
+      : 0;
+
+    // Ajouter les stats à la propriété
+    const propertyWithStats = {
+      ...property,
+      favoriteCount,
+      reviewCount,
+      averageRating: parseFloat(averageRating.toFixed(1)),
+    };
+
     res.json({
       message: 'Property retrieved successfully',
-      property
+      property: propertyWithStats
     });
 
   } catch (error) {

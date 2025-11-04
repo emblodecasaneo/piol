@@ -9,7 +9,7 @@ interface CreateReviewData {
   agentId: string;
   propertyId?: string;
   rating: number;
-  comment: string;
+  comment?: string; // Optionnel
   communication: number;
   honesty: number;
   responsiveness: number;
@@ -42,10 +42,10 @@ router.post('/', authenticateToken, async (req, res) => {
     }: CreateReviewData = req.body;
 
     // Validation des champs requis
-    if (!agentId || !rating || !comment || !communication || !honesty || !responsiveness || !propertyAccuracy) {
+    if (!agentId || !rating || !communication || !honesty || !responsiveness || !propertyAccuracy) {
       return res.status(400).json({
         error: 'Missing required fields',
-        message: 'Agent ID, rating, comment, and all aspect ratings are required'
+        message: 'Agent ID, rating, and all aspect ratings are required'
       });
     }
 
@@ -115,7 +115,7 @@ router.post('/', authenticateToken, async (req, res) => {
         agentId,
         propertyId: propertyId || null,
         rating,
-        comment,
+        comment: comment || null, // Gérer le cas où comment est vide
         communication,
         honesty,
         responsiveness,

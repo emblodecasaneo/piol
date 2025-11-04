@@ -75,6 +75,7 @@ model User {
   receivedMessages Message[] @relation("ReceivedMessages")
   searches      SavedSearch[]
   requestedAppointments Appointment[] @relation("RequestedAppointments")
+  payments      Payment[] @relation("UserPayments")
 
   @@map("users")
 }
@@ -109,10 +110,11 @@ model Agent {
   updatedAt          DateTime           @updatedAt
 
   // Relations
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  properties Property[]
-  reviews    Review[]
-  appointments Appointment[]
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  properties        Property[]
+  reviews           Review[]
+  appointments      Appointment[]
+  activeSubscription ActiveSubscription?
 
   @@map("agents")
 }
@@ -144,9 +146,69 @@ model Neighborhood {
   city       City       @relation(fields: [cityId], references: [id], onDelete: Cascade)
   localities Locality[]
   properties Property[]
+  score      NeighborhoodScore?
 
   @@unique([name, cityId])
   @@map("neighborhoods")
+}
+
+// Modèle Score de Quartier
+model NeighborhoodScore {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  neighborhoodId  String   @unique @db.ObjectId
+  
+  // Scores individuels (sur 5)
+  security        Float    @default(0) // Sécurité
+  accessibility   Float    @default(0) // Transports et accessibilité
+  amenities       Float    @default(0) // Commerces, écoles, hôpitaux
+  nightlife       Float    @default(0) // Vie nocturne
+  internet        Float    @default(0) // Qualité connexion internet
+  
+  // Score global (moyenne)
+  overall         Float    @default(0)
+  
+  // Métadonnées
+  totalRatings    Int      @default(0) // Nombre total d'évaluations
+  description     String?  // Description du quartier
+  highlights      String[] // Points forts ["Marché moderne", "École internationale"]
+  concerns        String[] // Points à considérer ["Trafic aux heures de pointe"]
+  
+  // Informations pratiques
+  averageRent     Int?     // Loyer moyen dans le quartier (FCFA)
+  transportCost   Int?     // Coût moyen transport quotidien (FCFA)
+  popularFor      String[] // ["Étudiants", "Familles", "Jeunes professionnels"]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  neighborhood    Neighborhood @relation(fields: [neighborhoodId], references: [id], onDelete: Cascade)
+  ratings         NeighborhoodRating[]
+
+  @@map("neighborhood_scores")
+}
+
+// Modèle pour les évaluations communautaires
+model NeighborhoodRating {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String   @db.ObjectId
+  scoreId           String   @db.ObjectId
+  
+  // Scores individuels (1-5)
+  security          Int
+  accessibility     Int
+  amenities         Int
+  nightlife         Int
+  internet          Int
+  
+  comment           String?
+  createdAt         DateTime @default(now())
+
+  // Relations
+  score             NeighborhoodScore @relation(fields: [scoreId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, scoreId]) // Un utilisateur ne peut évaluer qu'une fois par quartier
+  @@map("neighborhood_ratings")
 }
 
 // Modèle Lieu-dit
@@ -241,7 +303,7 @@ model Review {
   agentId    String  @db.ObjectId
   propertyId String? @db.ObjectId
   rating     Int // 1-5 étoiles
-  comment    String
+  comment    String? // Optionnel
   
   // Aspects détaillés
   communication      Int
@@ -314,4 +376,114 @@ model Appointment {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@map("appointments")
+}
+
+// Énumération pour les statuts de paiement
+enum PaymentStatus {
+  PENDING    // En attente
+  PROCESSING // En cours de traitement
+  COMPLETED  // Payé avec succès
+  FAILED     // Échec
+  CANCELLED  // Annulé
+  REFUNDED   // Remboursé
+}
+
+// Énumération pour les méthodes de paiement
+enum PaymentMethod {
+  MTN_MOMO      // MTN Mobile Money
+  ORANGE_MONEY  // Orange Money
+  CARD          // Carte bancaire
+  CASH          // Espèces (pour administration)
+}
+
+// Énumération pour les types de transaction
+enum TransactionType {
+  SUBSCRIPTION   // Abonnement mensuel
+  BOOST          // Mise en avant de propriété
+  COMMISSION     // Commission sur location
+}
+
+// Modèle Plan d'Abonnement
+model SubscriptionPlanDetails {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  name              String   @unique // FREE, BASIC, PREMIUM
+  displayName       String   // "Plan Gratuit", "Plan Basic", etc.
+  price             Int      // Prix en FCFA
+  maxProperties     Int      // Nombre max de propriétés (-1 = illimité)
+  maxPhotos         Int      // Photos max par propriété
+  maxBoosts         Int      // Mises en avant par mois
+  hasPrioritySupport Boolean @default(false)
+  hasAdvancedStats  Boolean @default(false)
+  hasPremiumBadge   Boolean @default(false)
+  description       String
+  features          String[] // Liste des fonctionnalités
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("subscription_plans")
+}
+
+// Modèle Transaction/Paiement
+model Payment {
+  id                String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String          @db.ObjectId
+  agentId           String?         @db.ObjectId
+  
+  // Détails du paiement
+  amount            Int             // Montant en FCFA
+  transactionType   TransactionType
+  paymentMethod     PaymentMethod
+  status            PaymentStatus   @default(PENDING)
+  
+  // Références externes (API Mobile Money)
+  externalReference String?         // Référence de la transaction chez le provider
+  phoneNumber       String?         // Numéro de téléphone pour Mobile Money
+  
+  // Métadonnées
+  description       String
+  metadata          Json?           // Données supplémentaires (propertyId pour boost, etc.)
+  
+  // Informations provider
+  providerResponse  Json?           // Réponse complète du provider
+  failureReason     String?         // Raison de l'échec si applicable
+  
+  // Dates
+  paidAt            DateTime?       // Date de paiement confirmé
+  expiresAt         DateTime?       // Pour les abonnements
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relations
+  user              User            @relation("UserPayments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+// Modèle Abonnement Actif
+model ActiveSubscription {
+  id                String           @id @default(auto()) @map("_id") @db.ObjectId
+  agentId           String           @unique @db.ObjectId
+  plan              SubscriptionPlan
+  
+  // Dates
+  startDate         DateTime
+  endDate           DateTime
+  isActive          Boolean          @default(true)
+  
+  // Limites utilisées
+  propertiesUsed    Int              @default(0)
+  boostsUsed        Int              @default(0)
+  
+  // Paiements liés
+  lastPaymentId     String?          @db.ObjectId
+  autoRenew         Boolean          @default(false)
+  
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  // Relations
+  agent             Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@map("active_subscriptions")
 }
