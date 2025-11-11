@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.requireVerifiedAgent = exports.requireUserType = exports.authenticateToken = void 0;
+exports.requireVerifiedAgent = exports.requireAdmin = exports.requireUserType = exports.authenticateToken = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const index_1 = require("../index");
 const authenticateToken = async (req, res, next) => {
@@ -73,9 +73,25 @@ const requireUserType = (userType) => {
     };
 };
 exports.requireUserType = requireUserType;
+const requireAdmin = (req, res, next) => {
+    if (!req.user) {
+        return res.status(401).json({
+            error: 'Access denied',
+            message: 'Authentication required'
+        });
+    }
+    if (req.user.userType !== 'ADMIN') {
+        return res.status(403).json({
+            error: 'Access denied',
+            message: 'This endpoint requires admin privileges'
+        });
+    }
+    next();
+};
+exports.requireAdmin = requireAdmin;
 const requireVerifiedAgent = async (req, res, next) => {
     try {
-        if (!req.user || req.user.userType !== 'AGENT') {
+        if (!req.user || (req.user.userType !== 'AGENT' && req.user.userType !== 'ADMIN')) {
             return res.status(403).json({
                 error: 'Access denied',
                 message: 'This endpoint requires agent privileges'

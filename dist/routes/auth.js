@@ -97,6 +97,13 @@ router.post('/login', async (req, res) => {
                 message: 'Email or password is incorrect'
             });
         }
+        if (!user.password) {
+            console.error('User has no password set:', user.id);
+            return res.status(500).json({
+                error: 'Login failed',
+                message: 'User account is not properly configured'
+            });
+        }
         const isPasswordValid = await bcryptjs_1.default.compare(password, user.password);
         if (!isPasswordValid) {
             return res.status(401).json({
@@ -104,7 +111,15 @@ router.post('/login', async (req, res) => {
                 message: 'Email or password is incorrect'
             });
         }
-        const token = jsonwebtoken_1.default.sign({ userId: user.id, userType: user.userType }, process.env.JWT_SECRET || 'fallback-secret');
+        const JWT_SECRET = process.env.JWT_SECRET;
+        if (!JWT_SECRET) {
+            console.error('JWT_SECRET is not set in environment variables');
+            return res.status(500).json({
+                error: 'Server configuration error',
+                message: 'Server is not properly configured'
+            });
+        }
+        const token = jsonwebtoken_1.default.sign({ userId: user.id, userType: user.userType }, JWT_SECRET, { expiresIn: '7d' });
         const { password: _, ...userWithoutPassword } = user;
         res.json({
             message: 'Login successful',
@@ -114,9 +129,12 @@ router.post('/login', async (req, res) => {
     }
     catch (error) {
         console.error('Login error:', error);
+        console.error('Error stack:', error?.stack);
         res.status(500).json({
             error: 'Login failed',
-            message: 'An error occurred during login'
+            message: process.env.NODE_ENV === 'development'
+                ? error?.message || 'An error occurred during login'
+                : 'An error occurred during login'
         });
     }
 });

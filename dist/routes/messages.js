@@ -119,14 +119,30 @@ router.get('/conversation/:otherUserId', auth_1.authenticateToken, async (req, r
                         select: {
                             id: true,
                             firstName: true,
-                            lastName: true
+                            lastName: true,
+                            userType: true,
+                            agent: {
+                                select: {
+                                    id: true,
+                                    businessName: true,
+                                    isVerified: true
+                                }
+                            }
                         }
                     },
                     receiver: {
                         select: {
                             id: true,
                             firstName: true,
-                            lastName: true
+                            lastName: true,
+                            userType: true,
+                            agent: {
+                                select: {
+                                    id: true,
+                                    businessName: true,
+                                    isVerified: true
+                                }
+                            }
                         }
                     },
                     property: {
@@ -306,4 +322,86 @@ router.get('/unread-count', auth_1.authenticateToken, async (req, res) => {
     }
 });
 exports.default = router;
+router.get('/admin/agent/:agentId', auth_1.authenticateToken, auth_1.requireAdmin, async (req, res) => {
+    try {
+        const { agentId } = req.params;
+        const agent = await index_1.prisma.agent.findUnique({
+            where: { id: agentId },
+            include: {
+                user: true,
+            },
+        });
+        if (!agent || !agent.user) {
+            return res.status(404).json({ error: 'Agent introuvable' });
+        }
+        const agentUserId = agent.userId;
+        const rawMessages = await index_1.prisma.message.findMany({
+            where: {
+                OR: [{ senderId: agentUserId }, { receiverId: agentUserId }],
+            },
+            include: {
+                sender: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                        userType: true,
+                    },
+                },
+                receiver: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                        userType: true,
+                    },
+                },
+                property: {
+                    select: {
+                        id: true,
+                        title: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        const conversationsMap = new Map();
+        rawMessages.forEach((message) => {
+            const otherUser = message.senderId === agentUserId ? message.receiver : message.sender;
+            const key = `${otherUser.id}-${message.propertyId || 'general'}`;
+            if (!conversationsMap.has(key)) {
+                conversationsMap.set(key, {
+                    id: key,
+                    otherUser,
+                    property: message.property,
+                    lastMessage: message,
+                    unreadCount: message.receiverId === agentUserId && !message.isRead ? 1 : 0,
+                    messages: [],
+                });
+            }
+            const convo = conversationsMap.get(key);
+            convo.messages.push(message);
+            if (message.createdAt > convo.lastMessage.createdAt) {
+                convo.lastMessage = message;
+            }
+            if (message.receiverId === agentUserId && !message.isRead) {
+                convo.unreadCount += 1;
+            }
+        });
+        const conversations = Array.from(conversationsMap.values()).map((convo) => ({
+            ...convo,
+            messages: convo.messages.reverse(),
+        }));
+        res.json({
+            success: true,
+            conversations,
+        });
+    }
+    catch (error) {
+        console.error('❌ Erreur récupération messages agent:', error);
+        res.status(500).json({ error: 'Erreur serveur lors de la récupération des messages' });
+    }
+});
 //# sourceMappingURL=messages.js.map

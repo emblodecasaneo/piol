@@ -413,7 +413,76 @@ router.post('/documents/upload', auth_1.authenticateToken, async (req, res) => {
         });
     }
 });
-router.post('/verify/:agentId', auth_1.authenticateToken, async (req, res) => {
+router.post('/:agentId/documents', auth_1.authenticateToken, auth_1.requireAdmin, async (req, res) => {
+    try {
+        const { agentId } = req.params;
+        const { documentField, documentUrl } = req.body;
+        if (!documentField || !documentUrl) {
+            return res.status(400).json({
+                error: 'Missing required fields',
+                message: 'Document field and URL are required'
+            });
+        }
+        const agent = await index_1.prisma.agent.findUnique({
+            where: { id: agentId }
+        });
+        if (!agent) {
+            return res.status(404).json({
+                error: 'Agent not found',
+                message: 'Agent not found'
+            });
+        }
+        const validFields = [
+            'idCardPhoto',
+            'businessLicense',
+            'locationPlan',
+            'proofOfAddress',
+            'businessCertificate',
+            'profilePhoto'
+        ];
+        if (!validFields.includes(documentField)) {
+            return res.status(400).json({
+                error: 'Invalid document field',
+                message: `Document field must be one of: ${validFields.join(', ')}`
+            });
+        }
+        const currentStatus = (agent.documentsStatus) || {};
+        const fieldToDocumentType = {
+            idCardPhoto: 'cni',
+            businessLicense: 'businessLicense',
+            locationPlan: 'locationPlan',
+            proofOfAddress: 'proofOfAddress',
+            businessCertificate: 'businessCertificate',
+            profilePhoto: 'profilePhoto'
+        };
+        const documentType = fieldToDocumentType[documentField] || documentField;
+        const updatedStatus = {
+            ...currentStatus,
+            [documentType]: 'pending'
+        };
+        const updatedAgent = await index_1.prisma.agent.update({
+            where: { id: agentId },
+            data: {
+                [documentField]: documentUrl,
+                documentsStatus: updatedStatus,
+                verificationStatus: 'PENDING',
+                isVerified: false
+            }
+        });
+        res.json({
+            message: 'Document added successfully',
+            agent: updatedAgent
+        });
+    }
+    catch (error) {
+        console.error('Add document error:', error);
+        res.status(500).json({
+            error: 'Failed to add document',
+            message: 'An error occurred while adding the document'
+        });
+    }
+});
+router.post('/verify/:agentId', auth_1.authenticateToken, auth_1.requireAdmin, async (req, res) => {
     try {
         const { agentId } = req.params;
         const { action, rejectionReason, documentsStatus } = req.body;
@@ -478,6 +547,65 @@ router.post('/verify/:agentId', auth_1.authenticateToken, async (req, res) => {
         });
     }
 });
+router.put('/:agentId/document-status', auth_1.authenticateToken, auth_1.requireAdmin, async (req, res) => {
+    try {
+        const { agentId } = req.params;
+        const { documentField, status } = req.body;
+        if (!documentField || !status) {
+            return res.status(400).json({
+                error: 'Missing fields',
+                message: 'documentField and status are required'
+            });
+        }
+        if (!['verified', 'rejected', 'pending'].includes(status)) {
+            return res.status(400).json({
+                error: 'Invalid status',
+                message: 'Status must be verified, rejected, or pending'
+            });
+        }
+        const agent = await index_1.prisma.agent.findUnique({
+            where: { id: agentId }
+        });
+        if (!agent) {
+            return res.status(404).json({
+                error: 'Agent not found',
+                message: 'The specified agent does not exist'
+            });
+        }
+        const currentStatus = (agent.documentsStatus) || {};
+        const updatedStatus = {
+            ...currentStatus,
+            [documentField]: status
+        };
+        const updatedAgent = await index_1.prisma.agent.update({
+            where: { id: agentId },
+            data: {
+                documentsStatus: updatedStatus
+            },
+            include: {
+                user: {
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                        phone: true
+                    }
+                }
+            }
+        });
+        res.json({
+            message: 'Document status updated successfully',
+            agent: updatedAgent
+        });
+    }
+    catch (error) {
+        console.error('Update document status error:', error);
+        res.status(500).json({
+            error: 'Failed to update document status',
+            message: 'An error occurred while updating the document status'
+        });
+    }
+});
 router.delete('/documents/:documentType', auth_1.authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
@@ -535,6 +663,159 @@ router.delete('/documents/:documentType', auth_1.authenticateToken, async (req, 
         res.status(500).json({
             error: 'Failed to delete document',
             message: 'An error occurred while deleting the document'
+        });
+    }
+});
+router.post('/', auth_1.authenticateToken, auth_1.requireAdmin, async (req, res) => {
+    try {
+        const { email, phone, password, firstName, lastName, businessName, license, idCardNumber, idCardPhoto, profilePhoto, businessLicense, locationPlan, proofOfAddress, businessCertificate } = req.body;
+        if (!email || !phone || !password || !firstName || !lastName || !businessName || !idCardNumber) {
+            return res.status(400).json({
+                error: 'Missing required fields',
+                message: 'Email, phone, password, firstName, lastName, businessName, and idCardNumber are required'
+            });
+        }
+        const existingUser = await index_1.prisma.user.findFirst({
+            where: {
+                OR: [
+                    { email },
+                    { phone }
+                ]
+            }
+        });
+        if (existingUser) {
+            return res.status(409).json({
+                error: 'User already exists',
+                message: 'A user with this email or phone number already exists'
+            });
+        }
+        const bcrypt = require('bcryptjs');
+        const hashedPassword = await bcrypt.hash(password, 12);
+        const user = await index_1.prisma.user.create({
+            data: {
+                email,
+                phone,
+                password: hashedPassword,
+                firstName,
+                lastName,
+                userType: 'AGENT'
+            }
+        });
+        const agent = await index_1.prisma.agent.create({
+            data: {
+                userId: user.id,
+                businessName,
+                license: license || null,
+                idCardNumber,
+                idCardPhoto: idCardPhoto || null,
+                profilePhoto: profilePhoto || null,
+                businessLicense: businessLicense || null,
+                locationPlan: locationPlan || null,
+                proofOfAddress: proofOfAddress || null,
+                businessCertificate: businessCertificate || null
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                        phone: true
+                    }
+                }
+            }
+        });
+        res.status(201).json({
+            message: 'Agent created successfully',
+            agent
+        });
+    }
+    catch (error) {
+        console.error('Create agent error:', error);
+        res.status(500).json({
+            error: 'Failed to create agent',
+            message: 'An error occurred while creating agent'
+        });
+    }
+});
+router.put('/:id', auth_1.authenticateToken, auth_1.requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email, phone, firstName, lastName, businessName, license, idCardNumber, idCardPhoto, profilePhoto, businessLicense, locationPlan, proofOfAddress, businessCertificate, verificationStatus, isVerified } = req.body;
+        const agent = await index_1.prisma.agent.findUnique({
+            where: { id },
+            include: { user: true }
+        });
+        if (!agent) {
+            return res.status(404).json({
+                error: 'Agent not found',
+                message: 'The specified agent does not exist'
+            });
+        }
+        const userUpdateData = {};
+        if (email)
+            userUpdateData.email = email;
+        if (phone)
+            userUpdateData.phone = phone;
+        if (firstName)
+            userUpdateData.firstName = firstName;
+        if (lastName)
+            userUpdateData.lastName = lastName;
+        if (Object.keys(userUpdateData).length > 0) {
+            await index_1.prisma.user.update({
+                where: { id: agent.userId },
+                data: userUpdateData
+            });
+        }
+        const agentUpdateData = {};
+        if (businessName)
+            agentUpdateData.businessName = businessName;
+        if (license !== undefined)
+            agentUpdateData.license = license;
+        if (idCardNumber)
+            agentUpdateData.idCardNumber = idCardNumber;
+        if (idCardPhoto !== undefined)
+            agentUpdateData.idCardPhoto = idCardPhoto;
+        if (profilePhoto !== undefined)
+            agentUpdateData.profilePhoto = profilePhoto;
+        if (businessLicense !== undefined)
+            agentUpdateData.businessLicense = businessLicense;
+        if (locationPlan !== undefined)
+            agentUpdateData.locationPlan = locationPlan;
+        if (proofOfAddress !== undefined)
+            agentUpdateData.proofOfAddress = proofOfAddress;
+        if (businessCertificate !== undefined)
+            agentUpdateData.businessCertificate = businessCertificate;
+        if (verificationStatus)
+            agentUpdateData.verificationStatus = verificationStatus;
+        if (isVerified !== undefined)
+            agentUpdateData.isVerified = isVerified;
+        const updatedAgent = await index_1.prisma.agent.update({
+            where: { id },
+            data: agentUpdateData,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                        phone: true
+                    }
+                }
+            }
+        });
+        res.json({
+            message: 'Agent updated successfully',
+            agent: updatedAgent
+        });
+    }
+    catch (error) {
+        console.error('Update agent error:', error);
+        res.status(500).json({
+            error: 'Failed to update agent',
+            message: 'An error occurred while updating agent'
         });
     }
 });

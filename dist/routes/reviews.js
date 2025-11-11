@@ -18,10 +18,10 @@ router.post('/', auth_1.authenticateToken, async (req, res) => {
             });
         }
         const { agentId, propertyId, rating, comment, communication, honesty, responsiveness, propertyAccuracy } = req.body;
-        if (!agentId || !rating || !comment || !communication || !honesty || !responsiveness || !propertyAccuracy) {
+        if (!agentId || !rating || !communication || !honesty || !responsiveness || !propertyAccuracy) {
             return res.status(400).json({
                 error: 'Missing required fields',
-                message: 'Agent ID, rating, comment, and all aspect ratings are required'
+                message: 'Agent ID, rating, and all aspect ratings are required'
             });
         }
         const ratings = [rating, communication, honesty, responsiveness, propertyAccuracy];
@@ -76,7 +76,7 @@ router.post('/', auth_1.authenticateToken, async (req, res) => {
                 agentId,
                 propertyId: propertyId || null,
                 rating,
-                comment,
+                comment: comment || null,
                 communication,
                 honesty,
                 responsiveness,

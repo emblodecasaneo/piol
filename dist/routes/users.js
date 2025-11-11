@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const index_1 = require("../index");
 const auth_1 = require("../middleware/auth");
 const router = express_1.default.Router();
@@ -59,14 +60,15 @@ router.put('/profile', auth_1.authenticateToken, async (req, res) => {
     try {
         const userId = req.user.userId;
         const userType = req.user.userType;
-        const { firstName, lastName, phone, avatar, businessName } = req.body;
+        const { firstName, lastName, phone, avatar, businessName, preferences } = req.body;
         const updatedUser = await index_1.prisma.user.update({
             where: { id: userId },
             data: {
                 ...(firstName && { firstName }),
                 ...(lastName && { lastName }),
                 ...(phone && { phone }),
-                ...(avatar && { avatar })
+                ...(avatar !== undefined && { avatar }),
+                ...(preferences !== undefined && { preferences })
             },
             include: {
                 agent: true
@@ -194,6 +196,48 @@ router.post('/favorites/:propertyId', auth_1.authenticateToken, async (req, res)
         res.status(500).json({
             error: 'Failed to toggle favorite',
             message: 'An error occurred while updating favorites'
+        });
+    }
+});
+router.put('/profile/password', auth_1.authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { currentPassword, newPassword } = req.body;
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({
+                error: 'Missing fields',
+                message: 'Current password and new password are required'
+            });
+        }
+        const user = await index_1.prisma.user.findUnique({ where: { id: userId } });
+        if (!user) {
+            return res.status(404).json({
+                error: 'User not found',
+                message: 'User profile not found'
+            });
+        }
+        const isValid = await bcryptjs_1.default.compare(currentPassword, user.password);
+        if (!isValid) {
+            return res.status(400).json({
+                error: 'Invalid password',
+                message: 'Current password is incorrect'
+            });
+        }
+        const hashedPassword = await bcryptjs_1.default.hash(newPassword, 12);
+        await index_1.prisma.user.update({
+            where: { id: userId },
+            data: { password: hashedPassword }
+        });
+        res.json({
+            success: true,
+            message: 'Password updated successfully'
+        });
+    }
+    catch (error) {
+        console.error('Update password error:', error);
+        res.status(500).json({
+            error: 'Failed to update password',
+            message: 'An error occurred while updating password'
         });
     }
 });
