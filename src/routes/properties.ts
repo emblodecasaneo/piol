@@ -1,7 +1,7 @@
 import { PropertyType } from '@prisma/client';
 import express from 'express';
 import { prisma } from '../index';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -865,5 +865,237 @@ async function getPropertiesWithinRadius(
     return [];
   }
 }
+
+// [ADMIN] Créer une propriété
+router.post('/admin', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const {
+      agentId,
+      title,
+      description,
+      type,
+      price,
+      deposit,
+      fees,
+      address,
+      cityId,
+      neighborhoodId,
+      localityId,
+      latitude,
+      longitude,
+      bedrooms,
+      bathrooms,
+      area,
+      furnished,
+      airConditioned,
+      parking,
+      security,
+      internet,
+      water,
+      electricity,
+      images,
+      availableFrom,
+      status
+    } = req.body;
+
+    // Validation des champs requis
+    if (!agentId || !title || !description || !type || !price || !address || !cityId || !neighborhoodId) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'agentId, title, description, type, price, address, cityId, and neighborhoodId are required'
+      });
+    }
+
+    // Vérifier que l'agent existe
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        error: 'Agent not found',
+        message: 'The specified agent does not exist'
+      });
+    }
+
+    const property = await prisma.property.create({
+      data: {
+        agentId,
+        title,
+        description,
+        type: type as PropertyType,
+        price: parseInt(price),
+        deposit: deposit ? parseInt(deposit) : 0,
+        fees: fees ? parseInt(fees) : null,
+        address,
+        cityId,
+        neighborhoodId,
+        localityId: localityId || null,
+        latitude: latitude ? parseFloat(latitude) : null,
+        longitude: longitude ? parseFloat(longitude) : null,
+        bedrooms: parseInt(bedrooms) || 1,
+        bathrooms: parseInt(bathrooms) || 1,
+        area: parseInt(area) || 0,
+        furnished: furnished === true,
+        airConditioned: airConditioned === true,
+        parking: parking === true,
+        security: security === true,
+        internet: internet === true,
+        water: water === true,
+        electricity: electricity === true,
+        images: images || [],
+        availableFrom: availableFrom ? new Date(availableFrom) : null,
+        status: status || 'ACTIVE'
+      },
+      include: {
+        agent: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        },
+        city: true,
+        neighborhood: true,
+        locality: true
+      }
+    });
+
+    res.status(201).json({
+      message: 'Property created successfully',
+      property
+    });
+
+  } catch (error) {
+    console.error('Create property error:', error);
+    res.status(500).json({
+      error: 'Failed to create property',
+      message: 'An error occurred while creating property'
+    });
+  }
+});
+
+// [ADMIN] Mettre à jour une propriété
+router.put('/admin/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const property = await prisma.property.findUnique({
+      where: { id }
+    });
+
+    if (!property) {
+      return res.status(404).json({
+        error: 'Property not found',
+        message: 'The specified property does not exist'
+      });
+    }
+
+    // Convertir les types si nécessaire
+    if (updateData.price) updateData.price = parseInt(updateData.price);
+    if (updateData.deposit) updateData.deposit = parseInt(updateData.deposit);
+    if (updateData.fees !== undefined) updateData.fees = updateData.fees ? parseInt(updateData.fees) : null;
+    if (updateData.bedrooms) updateData.bedrooms = parseInt(updateData.bedrooms);
+    if (updateData.bathrooms) updateData.bathrooms = parseInt(updateData.bathrooms);
+    if (updateData.area) updateData.area = parseInt(updateData.area);
+    if (updateData.latitude) updateData.latitude = parseFloat(updateData.latitude);
+    if (updateData.longitude) updateData.longitude = parseFloat(updateData.longitude);
+    if (updateData.type) updateData.type = updateData.type as PropertyType;
+    if (updateData.availableFrom) updateData.availableFrom = new Date(updateData.availableFrom);
+
+    const updatedProperty = await prisma.property.update({
+      where: { id },
+      data: updateData,
+      include: {
+        agent: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        },
+        city: true,
+        neighborhood: true,
+        locality: true
+      }
+    });
+
+    res.json({
+      message: 'Property updated successfully',
+      property: updatedProperty
+    });
+
+  } catch (error) {
+    console.error('Update property error:', error);
+    res.status(500).json({
+      error: 'Failed to update property',
+      message: 'An error occurred while updating property'
+    });
+  }
+});
+
+// [ADMIN] Bloquer/Débloquer une propriété
+router.put('/:id/block', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { blocked } = req.body; // true pour bloquer, false pour débloquer
+
+    const property = await prisma.property.findUnique({
+      where: { id }
+    });
+
+    if (!property) {
+      return res.status(404).json({
+        error: 'Property not found',
+        message: 'The specified property does not exist'
+      });
+    }
+
+    const updatedProperty = await prisma.property.update({
+      where: { id },
+      data: {
+        status: blocked ? 'INACTIVE' : 'ACTIVE',
+        isAvailable: !blocked
+      },
+      include: {
+        agent: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        },
+        city: true,
+        neighborhood: true,
+        locality: true
+      }
+    });
+
+    res.json({
+      message: `Property ${blocked ? 'blocked' : 'unblocked'} successfully`,
+      property: updatedProperty
+    });
+
+  } catch (error) {
+    console.error('Block property error:', error);
+    res.status(500).json({
+      error: 'Failed to block property',
+      message: 'An error occurred while blocking property'
+    });
+  }
+});
 
 export default router;

@@ -1,6 +1,6 @@
 import express from 'express';
 import { prisma } from '../index';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -542,4 +542,58 @@ router.patch('/:id/cancel', authenticateToken, async (req, res) => {
 });
 
 export default router;
+
+router.get('/admin/agent/:agentId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { status } = req.query;
+
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      select: { id: true },
+    });
+
+    if (!agent) {
+      return res.status(404).json({ message: 'Agent introuvable' });
+    }
+
+    const where: any = { agentId };
+    if (status && typeof status === 'string') {
+      where.status = status;
+    }
+
+    const appointments = await prisma.appointment.findMany({
+      where,
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+          },
+        },
+        property: {
+          select: {
+            id: true,
+            title: true,
+            address: true,
+            price: true,
+            images: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({
+      success: true,
+      appointments,
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération rendez-vous agent:', error);
+    res.status(500).json({ error: 'Erreur serveur lors de la récupération des rendez-vous' });
+  }
+});
 

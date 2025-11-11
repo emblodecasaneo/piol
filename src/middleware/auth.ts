@@ -5,7 +5,7 @@ import { prisma } from '../index';
 // Interface pour les données du token JWT
 interface JwtPayload {
   userId: string;
-  userType: 'TENANT' | 'AGENT';
+  userType: 'TENANT' | 'AGENT' | 'ADMIN';
   iat: number;
   exp: number;
 }
@@ -82,7 +82,7 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
 };
 
 // Middleware pour vérifier le type d'utilisateur
-export const requireUserType = (userType: 'TENANT' | 'AGENT') => {
+export const requireUserType = (userType: 'TENANT' | 'AGENT' | 'ADMIN') => {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({
@@ -102,10 +102,29 @@ export const requireUserType = (userType: 'TENANT' | 'AGENT') => {
   };
 };
 
+// Middleware pour vérifier les droits admin
+export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({
+      error: 'Access denied',
+      message: 'Authentication required'
+    });
+  }
+
+  if (req.user.userType !== 'ADMIN') {
+    return res.status(403).json({
+      error: 'Access denied',
+      message: 'This endpoint requires admin privileges'
+    });
+  }
+
+  next();
+};
+
 // Middleware pour vérifier que l'agent est vérifié
 export const requireVerifiedAgent = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (!req.user || req.user.userType !== 'AGENT') {
+    if (!req.user || (req.user.userType !== 'AGENT' && req.user.userType !== 'ADMIN')) {
       return res.status(403).json({
         error: 'Access denied',
         message: 'This endpoint requires agent privileges'

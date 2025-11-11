@@ -155,6 +155,15 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    // Vérifier que le mot de passe existe
+    if (!user.password) {
+      console.error('User has no password set:', user.id);
+      return res.status(500).json({
+        error: 'Login failed',
+        message: 'User account is not properly configured'
+      });
+    }
+
     // Vérifier le mot de passe
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
@@ -166,9 +175,19 @@ router.post('/login', async (req, res) => {
     }
 
     // Générer le token JWT
+    const JWT_SECRET = process.env.JWT_SECRET;
+    if (!JWT_SECRET) {
+      console.error('JWT_SECRET is not set in environment variables');
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: 'Server is not properly configured'
+      });
+    }
+
     const token = jwt.sign(
       { userId: user.id, userType: user.userType },
-      process.env.JWT_SECRET || 'fallback-secret'
+      JWT_SECRET,
+      { expiresIn: '7d' }
     );
 
     // Retourner les données utilisateur (sans le mot de passe)
@@ -180,11 +199,14 @@ router.post('/login', async (req, res) => {
       token
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Login error:', error);
+    console.error('Error stack:', error?.stack);
     res.status(500).json({
       error: 'Login failed',
-      message: 'An error occurred during login'
+      message: process.env.NODE_ENV === 'development' 
+        ? error?.message || 'An error occurred during login'
+        : 'An error occurred during login'
     });
   }
 });

@@ -47,6 +47,18 @@ async function main() {
     },
   });
 
+  // Admin
+  const adminUser = await prisma.user.create({
+    data: {
+      email: 'admin@piol.com',
+      phone: '+237690000000',
+      password: 12345678,
+      firstName: 'Admin',
+      lastName: 'PIOL',
+      userType: UserType.ADMIN,
+    },
+  });
+
   // Créer le profil agent
   const agent1 = await prisma.agent.create({
     data: {
@@ -403,6 +415,7 @@ async function main() {
   console.log('\n🔑 Comptes de test:');
   console.log('Locataire: mbolo@casaneo.io / 12345678');
   console.log('Agent: agent@casaneo.io / 12345678');
+  console.log('Admin: admin@piol.com / 12345678');
 }
 
 main()

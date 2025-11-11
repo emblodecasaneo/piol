@@ -1,6 +1,6 @@
 import express from 'express';
 import { prisma } from '../index';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -367,3 +367,97 @@ router.get('/unread-count', authenticateToken, async (req, res) => {
 });
 
 export default router;
+
+// --- Routes administrateur ---
+router.get('/admin/agent/:agentId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { agentId } = req.params;
+
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!agent || !agent.user) {
+      return res.status(404).json({ error: 'Agent introuvable' });
+    }
+
+    const agentUserId = agent.userId;
+
+    const rawMessages = await prisma.message.findMany({
+      where: {
+        OR: [{ senderId: agentUserId }, { receiverId: agentUserId }],
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            userType: true,
+          },
+        },
+        receiver: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            userType: true,
+          },
+        },
+        property: {
+          select: {
+            id: true,
+            title: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const conversationsMap = new Map<string, any>();
+
+    rawMessages.forEach((message) => {
+      const otherUser = message.senderId === agentUserId ? message.receiver : message.sender;
+      const key = `${otherUser.id}-${message.propertyId || 'general'}`;
+
+      if (!conversationsMap.has(key)) {
+        conversationsMap.set(key, {
+          id: key,
+          otherUser,
+          property: message.property,
+          lastMessage: message,
+          unreadCount:
+            message.receiverId === agentUserId && !message.isRead ? 1 : 0,
+          messages: [],
+        });
+      }
+
+      const convo = conversationsMap.get(key);
+      convo.messages.push(message);
+      if (message.createdAt > convo.lastMessage.createdAt) {
+        convo.lastMessage = message;
+      }
+      if (message.receiverId === agentUserId && !message.isRead) {
+        convo.unreadCount += 1;
+      }
+    });
+
+    const conversations = Array.from(conversationsMap.values()).map((convo) => ({
+      ...convo,
+      messages: convo.messages.reverse(),
+    }));
+
+    res.json({
+      success: true,
+      conversations,
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération messages agent:', error);
+    res.status(500).json({ error: 'Erreur serveur lors de la récupération des messages' });
+  }
+});

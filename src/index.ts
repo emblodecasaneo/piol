@@ -20,6 +20,9 @@ import reviewRoutes from './routes/reviews';
 import savedSearchRoutes from './routes/saved-searches';
 import userRoutes from './routes/users';
 import uploadRoutes from './routes/uploads';
+import adminRoutes from './routes/admins';
+import subscriptionRoutes from './routes/subscriptions';
+import analyticsRoutes from './routes/analytics';
 
 // Load environment variables
 dotenv.config();
@@ -32,18 +35,36 @@ const PORT = process.env.PORT || 3001;
 export const prisma = new PrismaClient();
 
 // Middleware
-app.use(helmet()); // Security headers
-app.use(cors()); // Enable CORS
+app.use(cors({
+  origin: true, // Permettre toutes les origines
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+})); // Enable CORS
+
+// Configuration Helmet pour permettre les images
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false,
+})); // Security headers
+
 app.use(morgan('combined')); // Logging
 app.use(express.json({ limit: '10mb' })); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 
-// Static files for uploads
+// Static files for uploads - avec headers CORS
 const uploadsPath = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(uploadsPath)) {
   fs.mkdirSync(uploadsPath, { recursive: true });
 }
-app.use('/uploads', express.static(uploadsPath));
+
+// Middleware pour ajouter les headers CORS aux fichiers statiques
+app.use('/uploads', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  next();
+}, express.static(uploadsPath));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -58,6 +79,9 @@ app.use('/api/appointments', appointmentRoutes);
 app.use('/api/neighborhood-scores', neighborhoodScoreRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/admins', adminRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

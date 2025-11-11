@@ -1,6 +1,6 @@
 import express from 'express';
 import { prisma } from '../index';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = express.Router();
 
@@ -481,10 +481,98 @@ router.post('/documents/upload', authenticateToken, async (req, res) => {
   }
 });
 
-// [ADMIN] Approuver ou rejeter la vérification d'un agent
-router.post('/verify/:agentId', authenticateToken, async (req, res) => {
+// [ADMIN] Ajouter un document à un agent
+router.post('/:agentId/documents', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    // TODO: Ajouter un middleware pour vérifier que l'utilisateur est admin
+    const { agentId } = req.params;
+    const { documentField, documentUrl } = req.body;
+
+    if (!documentField || !documentUrl) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'Document field and URL are required'
+      });
+    }
+
+    // Vérifier que l'agent existe
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        error: 'Agent not found',
+        message: 'Agent not found'
+      });
+    }
+
+    // Vérifier que le champ de document est valide
+    const validFields = [
+      'idCardPhoto',
+      'businessLicense',
+      'locationPlan',
+      'proofOfAddress',
+      'businessCertificate',
+      'profilePhoto'
+    ];
+
+    if (!validFields.includes(documentField)) {
+      return res.status(400).json({
+        error: 'Invalid document field',
+        message: `Document field must be one of: ${validFields.join(', ')}`
+      });
+    }
+
+    // Récupérer le statut actuel des documents
+    const currentStatus = ((agent as any).documentsStatus) || {};
+    
+    // Mapper le nom du champ au type de document pour le statut
+    const fieldToDocumentType: { [key: string]: string } = {
+      idCardPhoto: 'cni',
+      businessLicense: 'businessLicense',
+      locationPlan: 'locationPlan',
+      proofOfAddress: 'proofOfAddress',
+      businessCertificate: 'businessCertificate',
+      profilePhoto: 'profilePhoto'
+    };
+
+    const documentType = fieldToDocumentType[documentField] || documentField;
+    
+    // Mettre à jour le statut du document à 'pending'
+    const updatedStatus = {
+      ...currentStatus,
+      [documentType]: 'pending'
+    };
+
+    // Mettre à jour l'agent avec le nouveau document
+    const updatedAgent = await prisma.agent.update({
+      where: { id: agentId },
+      data: {
+        [documentField]: documentUrl,
+        documentsStatus: updatedStatus,
+        // Remettre en PENDING pour re-vérification si nécessaire
+        verificationStatus: 'PENDING',
+        isVerified: false
+      } as any
+    });
+
+    res.json({
+      message: 'Document added successfully',
+      agent: updatedAgent
+    });
+
+  } catch (error) {
+    console.error('Add document error:', error);
+    res.status(500).json({
+      error: 'Failed to add document',
+      message: 'An error occurred while adding the document'
+    });
+  }
+});
+
+// [ADMIN] Approuver ou rejeter la vérification d'un agent
+router.post('/verify/:agentId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
     const { agentId } = req.params;
     const { action, rejectionReason, documentsStatus } = req.body; // action: 'approve' ou 'reject'
 
@@ -553,6 +641,77 @@ router.post('/verify/:agentId', authenticateToken, async (req, res) => {
     res.status(500).json({
       error: 'Failed to verify agent',
       message: 'An error occurred while verifying the agent'
+    });
+  }
+});
+
+// [ADMIN] Mettre à jour le statut d'un document spécifique
+router.put('/:agentId/document-status', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { documentField, status } = req.body;
+
+    if (!documentField || !status) {
+      return res.status(400).json({
+        error: 'Missing fields',
+        message: 'documentField and status are required'
+      });
+    }
+
+    if (!['verified', 'rejected', 'pending'].includes(status)) {
+      return res.status(400).json({
+        error: 'Invalid status',
+        message: 'Status must be verified, rejected, or pending'
+      });
+    }
+
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        error: 'Agent not found',
+        message: 'The specified agent does not exist'
+      });
+    }
+
+    // Récupérer le statut actuel des documents
+    const currentStatus = ((agent as any).documentsStatus) || {};
+    
+    // Mettre à jour le statut du document spécifique
+    const updatedStatus = {
+      ...currentStatus,
+      [documentField]: status
+    };
+
+    const updatedAgent = await prisma.agent.update({
+      where: { id: agentId },
+      data: {
+        documentsStatus: updatedStatus
+      } as any,
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      message: 'Document status updated successfully',
+      agent: updatedAgent
+    });
+
+  } catch (error) {
+    console.error('Update document status error:', error);
+    res.status(500).json({
+      error: 'Failed to update document status',
+      message: 'An error occurred while updating the document status'
     });
   }
 });
@@ -627,6 +786,200 @@ router.delete('/documents/:documentType', authenticateToken, async (req, res) =>
     res.status(500).json({
       error: 'Failed to delete document',
       message: 'An error occurred while deleting the document'
+    });
+  }
+});
+
+// [ADMIN] Créer un agent
+router.post('/', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const {
+      email,
+      phone,
+      password,
+      firstName,
+      lastName,
+      businessName,
+      license,
+      idCardNumber,
+      idCardPhoto,
+      profilePhoto,
+      businessLicense,
+      locationPlan,
+      proofOfAddress,
+      businessCertificate
+    } = req.body;
+
+    // Validation des champs requis
+    if (!email || !phone || !password || !firstName || !lastName || !businessName || !idCardNumber) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'Email, phone, password, firstName, lastName, businessName, and idCardNumber are required'
+      });
+    }
+
+    // Vérifier si l'utilisateur existe déjà
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email },
+          { phone }
+        ]
+      }
+    });
+
+    if (existingUser) {
+      return res.status(409).json({
+        error: 'User already exists',
+        message: 'A user with this email or phone number already exists'
+      });
+    }
+
+    // Hasher le mot de passe
+    const bcrypt = require('bcryptjs');
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Créer l'utilisateur
+    const user = await prisma.user.create({
+      data: {
+        email,
+        phone,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        userType: 'AGENT'
+      }
+    });
+
+    // Créer le profil agent
+    const agent = await prisma.agent.create({
+      data: {
+        userId: user.id,
+        businessName,
+        license: license || null,
+        idCardNumber,
+        idCardPhoto: idCardPhoto || null,
+        profilePhoto: profilePhoto || null,
+        businessLicense: businessLicense || null,
+        locationPlan: locationPlan || null,
+        proofOfAddress: proofOfAddress || null,
+        businessCertificate: businessCertificate || null
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true
+          }
+        }
+      }
+    });
+
+    res.status(201).json({
+      message: 'Agent created successfully',
+      agent
+    });
+
+  } catch (error) {
+    console.error('Create agent error:', error);
+    res.status(500).json({
+      error: 'Failed to create agent',
+      message: 'An error occurred while creating agent'
+    });
+  }
+});
+
+// [ADMIN] Mettre à jour un agent
+router.put('/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      email,
+      phone,
+      firstName,
+      lastName,
+      businessName,
+      license,
+      idCardNumber,
+      idCardPhoto,
+      profilePhoto,
+      businessLicense,
+      locationPlan,
+      proofOfAddress,
+      businessCertificate,
+      verificationStatus,
+      isVerified
+    } = req.body;
+
+    const agent = await prisma.agent.findUnique({
+      where: { id },
+      include: { user: true }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        error: 'Agent not found',
+        message: 'The specified agent does not exist'
+      });
+    }
+
+    // Mettre à jour l'utilisateur si nécessaire
+    const userUpdateData: any = {};
+    if (email) userUpdateData.email = email;
+    if (phone) userUpdateData.phone = phone;
+    if (firstName) userUpdateData.firstName = firstName;
+    if (lastName) userUpdateData.lastName = lastName;
+
+    if (Object.keys(userUpdateData).length > 0) {
+      await prisma.user.update({
+        where: { id: agent.userId },
+        data: userUpdateData
+      });
+    }
+
+    // Mettre à jour l'agent
+    const agentUpdateData: any = {};
+    if (businessName) agentUpdateData.businessName = businessName;
+    if (license !== undefined) agentUpdateData.license = license;
+    if (idCardNumber) agentUpdateData.idCardNumber = idCardNumber;
+    if (idCardPhoto !== undefined) agentUpdateData.idCardPhoto = idCardPhoto;
+    if (profilePhoto !== undefined) agentUpdateData.profilePhoto = profilePhoto;
+    if (businessLicense !== undefined) agentUpdateData.businessLicense = businessLicense;
+    if (locationPlan !== undefined) agentUpdateData.locationPlan = locationPlan;
+    if (proofOfAddress !== undefined) agentUpdateData.proofOfAddress = proofOfAddress;
+    if (businessCertificate !== undefined) agentUpdateData.businessCertificate = businessCertificate;
+    if (verificationStatus) agentUpdateData.verificationStatus = verificationStatus;
+    if (isVerified !== undefined) agentUpdateData.isVerified = isVerified;
+
+    const updatedAgent = await prisma.agent.update({
+      where: { id },
+      data: agentUpdateData,
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      message: 'Agent updated successfully',
+      agent: updatedAgent
+    });
+
+  } catch (error) {
+    console.error('Update agent error:', error);
+    res.status(500).json({
+      error: 'Failed to update agent',
+      message: 'An error occurred while updating agent'
     });
   }
 });
