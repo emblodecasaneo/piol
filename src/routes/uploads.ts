@@ -1,8 +1,14 @@
 import express from 'express';
 import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
+import {
+  propertyImageStorage,
+  agentDocumentStorage,
+  avatarImageStorage,
+  CLOUDINARY_ENABLED,
+  getLocalFileUrl,
+  getCloudinaryFileUrl,
+} from '../config/cloudinary';
 
 const router = express.Router();
 
@@ -39,35 +45,6 @@ const handleMulterError = (handler: express.RequestHandler): express.RequestHand
   };
 };
 
-// Ensure uploads directory exists
-const uploadRoot = path.join(__dirname, '..', '..', 'uploads');
-const propertyImagesDir = path.join(uploadRoot, 'properties');
-const agentDocumentsDir = path.join(uploadRoot, 'agents');
-const avatarsDir = path.join(uploadRoot, 'avatars');
-
-if (!fs.existsSync(propertyImagesDir)) {
-  fs.mkdirSync(propertyImagesDir, { recursive: true });
-}
-if (!fs.existsSync(agentDocumentsDir)) {
-  fs.mkdirSync(agentDocumentsDir, { recursive: true });
-}
-if (!fs.existsSync(avatarsDir)) {
-  fs.mkdirSync(avatarsDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, propertyImagesDir);
-  },
-  filename: (_req, file, cb) => {
-    const timestamp = Date.now();
-    const sanitizedOriginalName = file.originalname
-      .replace(/\s+/g, '_')
-      .replace(/[^a-zA-Z0-9._-]/g, '');
-    cb(null, `${timestamp}-${sanitizedOriginalName}`);
-  },
-});
-
 const imageFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
   if (
     file.mimetype.startsWith('image/') ||
@@ -82,7 +59,7 @@ const imageFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
 };
 
 const upload = multer({
-  storage,
+  storage: propertyImageStorage,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB
   },
@@ -91,25 +68,11 @@ const upload = multer({
 
 // Upload multiple images
 const uploadMultiple = multer({
-  storage,
+  storage: propertyImageStorage,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB
   },
   fileFilter: imageFilter,
-});
-
-// Storage for agent documents (PDF, images)
-const agentStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, agentDocumentsDir);
-  },
-  filename: (_req, file, cb) => {
-    const timestamp = Date.now();
-    const sanitizedOriginalName = file.originalname
-      .replace(/\s+/g, '_')
-      .replace(/[^a-zA-Z0-9._-]/g, '');
-    cb(null, `${timestamp}-${sanitizedOriginalName}`);
-  },
 });
 
 const documentFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
@@ -136,7 +99,7 @@ const documentFilter: multer.Options['fileFilter'] = (_req, file, cb) => {
 };
 
 const uploadDocument = multer({
-  storage: agentStorage,
+  storage: agentDocumentStorage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB
     files: 1,
@@ -144,21 +107,8 @@ const uploadDocument = multer({
   fileFilter: documentFilter,
 });
 
-const avatarStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, avatarsDir);
-  },
-  filename: (_req, file, cb) => {
-    const timestamp = Date.now();
-    const sanitizedOriginalName = file.originalname
-      .replace(/\s+/g, '_')
-      .replace(/[^a-zA-Z0-9._-]/g, '');
-    cb(null, `${timestamp}-${sanitizedOriginalName}`);
-  },
-});
-
 const avatarUpload = multer({
-  storage: avatarStorage,
+  storage: avatarImageStorage,
   limits: {
     fileSize: 3 * 1024 * 1024, // 3MB
     files: 1,
@@ -166,6 +116,29 @@ const avatarUpload = multer({
   fileFilter: imageFilter,
 });
 
+type UploadFolder = 'properties' | 'agents' | 'avatars';
+
+const buildUploadResponse = (
+  req: express.Request,
+  file: Express.Multer.File,
+  folder: UploadFolder
+) => {
+  if (CLOUDINARY_ENABLED) {
+    const url = getCloudinaryFileUrl(file);
+    if (!url) {
+      throw new Error('Unable to retrieve Cloudinary URL');
+    }
+    return {
+      url,
+      filename: file.filename,
+    };
+  }
+
+  return {
+    url: getLocalFileUrl(req, folder, file.filename),
+    filename: file.filename,
+  };
+};
 
 
 router.post(
@@ -202,19 +175,20 @@ router.post(
         });
       }
 
-      // Utiliser UPLOAD_BASE_URL en production, sinon construire depuis la requête
-      const baseUrl = process.env.UPLOAD_BASE_URL || 
-        (process.env.NODE_ENV === 'production' 
-          ? 'https://piol.onrender.com'
-          : `${req.protocol}://${req.get('host')}`);
-
-      const url = `${baseUrl}/uploads/properties/${req.file.filename}`;
-
-      return res.json({
-        message: 'Image uploaded successfully',
-        url,
-        filename: req.file.filename,
-      });
+      try {
+        const fileInfo = buildUploadResponse(req, req.file, 'properties');
+        return res.json({
+          message: 'Image uploaded successfully',
+          url: fileInfo.url,
+          filename: fileInfo.filename,
+        });
+      } catch (error) {
+        console.error('❌ Upload response error:', error);
+        return res.status(500).json({
+          error: 'Upload error',
+          message: 'Impossible de générer l’URL du fichier uploadé',
+        });
+      }
     });
   }
 );
@@ -233,23 +207,22 @@ router.post(
       });
     }
 
-    // Utiliser UPLOAD_BASE_URL en production, sinon construire depuis la requête
-    const baseUrl = process.env.UPLOAD_BASE_URL || 
-      (process.env.NODE_ENV === 'production' 
-        ? 'https://piol.onrender.com'
-        : `${req.protocol}://${req.get('host')}`);
+    try {
+      const files = req.files as Express.Multer.File[];
+      const urls = files.map((file) => buildUploadResponse(req, file, 'properties'));
 
-    const files = req.files as Express.Multer.File[];
-    const urls = files.map((file) => ({
-      url: `${baseUrl}/uploads/properties/${file.filename}`,
-      filename: file.filename,
-    }));
-
-    return res.json({
-      message: 'Images uploaded successfully',
-      urls,
-      count: urls.length,
-    });
+      return res.json({
+        message: 'Images uploaded successfully',
+        urls,
+        count: urls.length,
+      });
+    } catch (error) {
+      console.error('❌ Upload multiple response error:', error);
+      return res.status(500).json({
+        error: 'Upload error',
+        message: 'Impossible de générer les URLs des fichiers uploadés',
+      });
+    }
   }
 );
 
@@ -291,20 +264,23 @@ router.post(
 
       console.log('✅ Document uploaded:', req.file.filename);
 
-      const baseUrl = process.env.UPLOAD_BASE_URL || 
-        (process.env.NODE_ENV === 'production' 
-          ? 'https://piol.onrender.com'
-          : `${req.protocol}://${req.get('host')}`);
+      try {
+        const fileInfo = buildUploadResponse(req, req.file, 'agents');
 
-      const url = `${baseUrl}/uploads/agents/${req.file.filename}`;
+        console.log('✅ Document upload success, URL:', fileInfo.url);
 
-      console.log('✅ Document upload success, URL:', url);
-
-      res.json({
-        message: 'Document uploaded successfully',
-        url,
-        filename: req.file.filename,
-      });
+        res.json({
+          message: 'Document uploaded successfully',
+          url: fileInfo.url,
+          filename: fileInfo.filename,
+        });
+      } catch (error) {
+        console.error('❌ Document URL generation error:', error);
+        res.status(500).json({
+          error: 'Upload error',
+          message: 'Impossible de générer l’URL du document uploadé',
+        });
+      }
     });
   }
 );
@@ -321,19 +297,21 @@ router.post(
       });
     }
 
-    // Utiliser UPLOAD_BASE_URL en production, sinon construire depuis la requête
-    const baseUrl = process.env.UPLOAD_BASE_URL || 
-      (process.env.NODE_ENV === 'production' 
-        ? 'https://piol.onrender.com'
-        : `${req.protocol}://${req.get('host')}`);
+    try {
+      const fileInfo = buildUploadResponse(req, req.file, 'avatars');
 
-    const url = `${baseUrl}/uploads/avatars/${req.file.filename}`;
-
-    res.json({
-      message: 'Avatar uploaded successfully',
-      url,
-      filename: req.file.filename,
-    });
+      res.json({
+        message: 'Avatar uploaded successfully',
+        url: fileInfo.url,
+        filename: fileInfo.filename,
+      });
+    } catch (error) {
+      console.error('❌ Avatar URL generation error:', error);
+      res.status(500).json({
+        error: 'Upload error',
+        message: 'Impossible de générer l’URL de l’avatar uploadé',
+      });
+    }
   }
 );
 
