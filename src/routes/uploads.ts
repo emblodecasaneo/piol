@@ -166,65 +166,12 @@ const avatarUpload = multer({
   fileFilter: imageFilter,
 });
 
-// Route de test pour vérifier que la route est accessible
-router.get('/test', (req, res) => {
-  res.json({ message: 'Upload route is working!' });
-});
 
-// Route de test SANS authentification pour tester multer
-router.post(
-  '/test-upload',
-  (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.log('🧪 TEST Upload request received');
-    console.log('Method:', req.method);
-    console.log('Path:', req.path);
-    console.log('Content-Type:', req.headers['content-type']);
-    
-    upload.single('image')(req, res, (err: any) => {
-      if (err) {
-        console.error('❌ Multer error:', err);
-        return res.status(400).json({
-          error: 'Upload error',
-          message: err.message || 'Erreur lors de l\'upload',
-        });
-      }
-
-      if (!req.file) {
-        console.error('❌ No file in request');
-        return res.status(400).json({
-          error: 'No file uploaded',
-          message: 'Aucun fichier fourni',
-        });
-      }
-
-      console.log('✅ TEST File uploaded:', req.file.filename);
-
-      return res.json({
-        message: 'Test upload successful!',
-        filename: req.file.filename,
-        size: req.file.size,
-        mimetype: req.file.mimetype,
-      });
-    });
-  }
-);
 
 router.post(
   '/property-image',
   authenticateToken,
   (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.log('========================================');
-    console.log('📤 Upload request received at /property-image');
-    console.log('Method:', req.method);
-    console.log('Path:', req.path);
-    console.log('Original URL:', req.originalUrl);
-    console.log('User:', req.user ? `ID: ${req.user.userId}` : 'No user');
-    console.log('Content-Type:', req.headers['content-type']);
-    console.log('Content-Length:', req.headers['content-length']);
-    console.log('Authorization:', req.headers['authorization'] ? 'Present' : 'Missing');
-    console.log('Has file before multer:', !!req.file);
-    console.log('Body keys:', Object.keys(req.body || {}));
-    console.log('========================================');
     
     // Utiliser le middleware multer avec gestion d'erreur
     upload.single('image')(req, res, (err: any) => {
@@ -249,14 +196,11 @@ router.post(
       }
 
       if (!req.file) {
-        console.error('❌ No file in request');
         return res.status(400).json({
           error: 'No file uploaded',
           message: 'Aucun fichier fourni. Veuillez sélectionner une image.',
         });
       }
-
-      console.log('✅ File uploaded:', req.file.filename);
 
       // Utiliser UPLOAD_BASE_URL en production, sinon construire depuis la requête
       const baseUrl = process.env.UPLOAD_BASE_URL || 
@@ -265,8 +209,6 @@ router.post(
           : `${req.protocol}://${req.get('host')}`);
 
       const url = `${baseUrl}/uploads/properties/${req.file.filename}`;
-
-      console.log('✅ Upload success, URL:', url);
 
       return res.json({
         message: 'Image uploaded successfully',

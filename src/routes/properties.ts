@@ -866,63 +866,9 @@ async function getPropertiesWithinRadius(
   }
 }
 
-// [ADMIN-TEST] Endpoint temporaire pour tester sans requireAdmin
-router.get('/admin-test', authenticateToken, async (req, res) => {
-  console.log('🧪 Admin-test endpoint called');
-  console.log('User from token:', req.user);
-  console.log('User type:', req.user?.userType);
-  
-  try {
-    const properties = await prisma.property.findMany({
-      include: {
-        agent: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                phone: true,
-                email: true
-              }
-            }
-          }
-        },
-        city: true,
-        neighborhood: true,
-        locality: true
-      },
-      orderBy: [
-        { isPremium: 'desc' },
-        { createdAt: 'desc' }
-      ],
-      take: 50
-    });
-
-    console.log('Properties found for test:', properties.length);
-
-    res.json({
-      message: 'Test admin properties retrieved successfully',
-      properties,
-      userType: req.user?.userType,
-      isAdmin: req.user?.userType === 'ADMIN'
-    });
-
-  } catch (error) {
-    console.error('Get test admin properties error:', error);
-    res.status(500).json({
-      error: 'Failed to get test admin properties',
-      message: 'An error occurred while retrieving test admin properties'
-    });
-  }
-});
 
 // [ADMIN] Obtenir toutes les propriétés (pour le backoffice)
 router.get('/admin', authenticateToken, requireAdmin, async (req, res) => {
-  console.log('🔐 Admin endpoint called');
-  console.log('User from token:', req.user);
-  console.log('User type:', req.user?.userType);
-  console.log('Is admin?', req.user?.userType === 'ADMIN');
   try {
     const {
       page = '1',
@@ -994,8 +940,6 @@ router.get('/admin', authenticateToken, requireAdmin, async (req, res) => {
       prisma.property.count({ where })
     ]);
 
-    console.log('Admin properties found:', properties.length);
-    console.log('Sample property images:', properties[0]?.images || 'No properties');
 
     res.json({
       message: 'Admin properties retrieved successfully',
