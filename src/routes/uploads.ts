@@ -6,6 +6,39 @@ import { authenticateToken, requireAdmin } from '../middleware/auth';
 
 const router = express.Router();
 
+// Wrapper pour gérer les erreurs multer
+const handleMulterError = (handler: express.RequestHandler): express.RequestHandler => {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    handler(req, res, (err: any) => {
+      if (err) {
+        if (err instanceof multer.MulterError) {
+          if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+              error: 'File too large',
+              message: 'File size exceeds the maximum allowed size',
+            });
+          }
+          if (err.code === 'LIMIT_FILE_COUNT') {
+            return res.status(400).json({
+              error: 'Too many files',
+              message: 'File count exceeds the maximum allowed',
+            });
+          }
+          return res.status(400).json({
+            error: 'Upload error',
+            message: err.message,
+          });
+        }
+        return res.status(400).json({
+          error: 'Upload error',
+          message: err.message || 'Error uploading file',
+        });
+      }
+      next();
+    });
+  };
+};
+
 // Ensure uploads directory exists
 const uploadRoot = path.join(__dirname, '..', '..', 'uploads');
 const propertyImagesDir = path.join(uploadRoot, 'properties');
@@ -133,30 +166,113 @@ const avatarUpload = multer({
   fileFilter: imageFilter,
 });
 
+// Route de test pour vérifier que la route est accessible
+router.get('/test', (req, res) => {
+  res.json({ message: 'Upload route is working!' });
+});
+
+// Route de test SANS authentification pour tester multer
+router.post(
+  '/test-upload',
+  (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.log('🧪 TEST Upload request received');
+    console.log('Method:', req.method);
+    console.log('Path:', req.path);
+    console.log('Content-Type:', req.headers['content-type']);
+    
+    upload.single('image')(req, res, (err: any) => {
+      if (err) {
+        console.error('❌ Multer error:', err);
+        return res.status(400).json({
+          error: 'Upload error',
+          message: err.message || 'Erreur lors de l\'upload',
+        });
+      }
+
+      if (!req.file) {
+        console.error('❌ No file in request');
+        return res.status(400).json({
+          error: 'No file uploaded',
+          message: 'Aucun fichier fourni',
+        });
+      }
+
+      console.log('✅ TEST File uploaded:', req.file.filename);
+
+      return res.json({
+        message: 'Test upload successful!',
+        filename: req.file.filename,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+      });
+    });
+  }
+);
+
 router.post(
   '/property-image',
   authenticateToken,
-  upload.single('image'),
-  (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({
-        error: 'No file uploaded',
-        message: 'Please provide an image file to upload',
+  (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.log('========================================');
+    console.log('📤 Upload request received at /property-image');
+    console.log('Method:', req.method);
+    console.log('Path:', req.path);
+    console.log('Original URL:', req.originalUrl);
+    console.log('User:', req.user ? `ID: ${req.user.userId}` : 'No user');
+    console.log('Content-Type:', req.headers['content-type']);
+    console.log('Content-Length:', req.headers['content-length']);
+    console.log('Authorization:', req.headers['authorization'] ? 'Present' : 'Missing');
+    console.log('Has file before multer:', !!req.file);
+    console.log('Body keys:', Object.keys(req.body || {}));
+    console.log('========================================');
+    
+    // Utiliser le middleware multer avec gestion d'erreur
+    upload.single('image')(req, res, (err: any) => {
+      if (err) {
+        console.error('❌ Multer error:', err);
+        if (err instanceof multer.MulterError) {
+          if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+              error: 'File too large',
+              message: 'La taille du fichier dépasse la limite autorisée (5MB)',
+            });
+          }
+          return res.status(400).json({
+            error: 'Upload error',
+            message: err.message || 'Erreur lors de l\'upload',
+          });
+        }
+        return res.status(400).json({
+          error: 'Upload error',
+          message: err.message || 'Erreur lors de l\'upload du fichier',
+        });
+      }
+
+      if (!req.file) {
+        console.error('❌ No file in request');
+        return res.status(400).json({
+          error: 'No file uploaded',
+          message: 'Aucun fichier fourni. Veuillez sélectionner une image.',
+        });
+      }
+
+      console.log('✅ File uploaded:', req.file.filename);
+
+      // Utiliser UPLOAD_BASE_URL en production, sinon construire depuis la requête
+      const baseUrl = process.env.UPLOAD_BASE_URL || 
+        (process.env.NODE_ENV === 'production' 
+          ? 'https://piol.onrender.com'
+          : `${req.protocol}://${req.get('host')}`);
+
+      const url = `${baseUrl}/uploads/properties/${req.file.filename}`;
+
+      console.log('✅ Upload success, URL:', url);
+
+      return res.json({
+        message: 'Image uploaded successfully',
+        url,
+        filename: req.file.filename,
       });
-    }
-
-    // Utiliser UPLOAD_BASE_URL en production, sinon construire depuis la requête
-    const baseUrl = process.env.UPLOAD_BASE_URL || 
-      (process.env.NODE_ENV === 'production' 
-        ? 'https://piol.onrender.com'
-        : `${req.protocol}://${req.get('host')}`);
-
-    const url = `${baseUrl}/uploads/properties/${req.file.filename}`;
-
-    return res.json({
-      message: 'Image uploaded successfully',
-      url,
-      filename: req.file.filename,
     });
   }
 );
@@ -166,8 +282,8 @@ router.post(
   '/property-images',
   authenticateToken,
   requireAdmin,
-  uploadMultiple.array('images', 10),
-  (req, res) => {
+  handleMulterError(uploadMultiple.array('images', 10)),
+  (req: express.Request, res: express.Response) => {
     if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
       return res.status(400).json({
         error: 'No files uploaded',
@@ -199,20 +315,54 @@ router.post(
 router.post(
   '/agent-document',
   authenticateToken,
-  uploadDocument.single('document'),
-  (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({
-        error: 'No file uploaded',
-        message: 'Please upload a document',
+  (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.log('📤 Document upload request received');
+    
+    uploadDocument.single('document')(req, res, (err: any) => {
+      if (err) {
+        console.error('❌ Multer error:', err);
+        if (err instanceof multer.MulterError) {
+          if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+              error: 'File too large',
+              message: 'La taille du fichier dépasse la limite autorisée (10MB)',
+            });
+          }
+          return res.status(400).json({
+            error: 'Upload error',
+            message: err.message || 'Erreur lors de l\'upload',
+          });
+        }
+        return res.status(400).json({
+          error: 'Upload error',
+          message: err.message || 'Erreur lors de l\'upload du document',
+        });
+      }
+
+      if (!req.file) {
+        console.error('❌ No file in request');
+        return res.status(400).json({
+          error: 'No file uploaded',
+          message: 'Aucun fichier fourni. Veuillez sélectionner un document.',
+        });
+      }
+
+      console.log('✅ Document uploaded:', req.file.filename);
+
+      const baseUrl = process.env.UPLOAD_BASE_URL || 
+        (process.env.NODE_ENV === 'production' 
+          ? 'https://piol.onrender.com'
+          : `${req.protocol}://${req.get('host')}`);
+
+      const url = `${baseUrl}/uploads/agents/${req.file.filename}`;
+
+      console.log('✅ Document upload success, URL:', url);
+
+      res.json({
+        message: 'Document uploaded successfully',
+        url,
+        filename: req.file.filename,
       });
-    }
-
-    const relativePath = `/uploads/agents/${req.file.filename}`;
-
-    res.json({
-      message: 'Document uploaded successfully',
-      url: relativePath,
     });
   }
 );
@@ -220,8 +370,8 @@ router.post(
 router.post(
   '/user-avatar',
   authenticateToken,
-  avatarUpload.single('avatar'),
-  (req, res) => {
+  handleMulterError(avatarUpload.single('avatar')),
+  (req: express.Request, res: express.Response) => {
     if (!req.file) {
       return res.status(400).json({
         error: 'No file uploaded',
@@ -229,11 +379,18 @@ router.post(
       });
     }
 
-    const relativePath = `/uploads/avatars/${req.file.filename}`;
+    // Utiliser UPLOAD_BASE_URL en production, sinon construire depuis la requête
+    const baseUrl = process.env.UPLOAD_BASE_URL || 
+      (process.env.NODE_ENV === 'production' 
+        ? 'https://piol.onrender.com'
+        : `${req.protocol}://${req.get('host')}`);
+
+    const url = `${baseUrl}/uploads/avatars/${req.file.filename}`;
 
     res.json({
       message: 'Avatar uploaded successfully',
-      url: relativePath,
+      url,
+      filename: req.file.filename,
     });
   }
 );

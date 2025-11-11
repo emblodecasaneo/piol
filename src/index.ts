@@ -38,8 +38,9 @@ export const prisma = new PrismaClient();
 app.use(cors({
   origin: true, // Permettre toutes les origines
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
 })); // Enable CORS
 
 // Configuration Helmet pour permettre les images
@@ -49,8 +50,24 @@ app.use(helmet({
 })); // Security headers
 
 app.use(morgan('combined')); // Logging
-app.use(express.json({ limit: '10mb' })); // Parse JSON bodies
-app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
+
+// Middleware pour parser JSON et URL-encoded, mais PAS pour les routes d'upload
+app.use((req, res, next) => {
+  // Skip body parsing for upload routes (multer handles it)
+  if (req.path.startsWith('/api/uploads')) {
+    return next();
+  }
+  // Parse JSON for other routes
+  express.json({ limit: '10mb' })(req, res, next);
+});
+
+app.use((req, res, next) => {
+  // Skip body parsing for upload routes
+  if (req.path.startsWith('/api/uploads')) {
+    return next();
+  }
+  express.urlencoded({ extended: true })(req, res, next);
+});
 
 // Static files for uploads - avec headers CORS
 const uploadsPath = path.join(__dirname, '..', 'uploads');

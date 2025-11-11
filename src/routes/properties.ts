@@ -866,6 +866,157 @@ async function getPropertiesWithinRadius(
   }
 }
 
+// [ADMIN-TEST] Endpoint temporaire pour tester sans requireAdmin
+router.get('/admin-test', authenticateToken, async (req, res) => {
+  console.log('🧪 Admin-test endpoint called');
+  console.log('User from token:', req.user);
+  console.log('User type:', req.user?.userType);
+  
+  try {
+    const properties = await prisma.property.findMany({
+      include: {
+        agent: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                email: true
+              }
+            }
+          }
+        },
+        city: true,
+        neighborhood: true,
+        locality: true
+      },
+      orderBy: [
+        { isPremium: 'desc' },
+        { createdAt: 'desc' }
+      ],
+      take: 50
+    });
+
+    console.log('Properties found for test:', properties.length);
+
+    res.json({
+      message: 'Test admin properties retrieved successfully',
+      properties,
+      userType: req.user?.userType,
+      isAdmin: req.user?.userType === 'ADMIN'
+    });
+
+  } catch (error) {
+    console.error('Get test admin properties error:', error);
+    res.status(500).json({
+      error: 'Failed to get test admin properties',
+      message: 'An error occurred while retrieving test admin properties'
+    });
+  }
+});
+
+// [ADMIN] Obtenir toutes les propriétés (pour le backoffice)
+router.get('/admin', authenticateToken, requireAdmin, async (req, res) => {
+  console.log('🔐 Admin endpoint called');
+  console.log('User from token:', req.user);
+  console.log('User type:', req.user?.userType);
+  console.log('Is admin?', req.user?.userType === 'ADMIN');
+  try {
+    const {
+      page = '1',
+      limit = '50',
+      search,
+      type,
+      status,
+      agentId
+    } = req.query;
+
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Construire les filtres pour l'admin
+    const where: any = {};
+
+    if (search) {
+      where.OR = [
+        { title: { contains: search as string, mode: 'insensitive' } },
+        { description: { contains: search as string, mode: 'insensitive' } },
+        { address: { contains: search as string, mode: 'insensitive' } }
+      ];
+    }
+
+    if (type) {
+      where.type = type as PropertyType;
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (agentId) {
+      where.agentId = agentId as string;
+    }
+
+    console.log('Admin properties query - WHERE:', JSON.stringify(where, null, 2));
+
+    // Récupérer les propriétés avec toutes les relations
+    const [properties, total] = await Promise.all([
+      prisma.property.findMany({
+        where,
+        include: {
+          agent: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  phone: true,
+                  email: true
+                }
+              }
+            }
+          },
+          city: true,
+          neighborhood: true,
+          locality: true
+        },
+        orderBy: [
+          { isPremium: 'desc' },
+          { createdAt: 'desc' }
+        ],
+        skip,
+        take: limitNum
+      }),
+      prisma.property.count({ where })
+    ]);
+
+    console.log('Admin properties found:', properties.length);
+    console.log('Sample property images:', properties[0]?.images || 'No properties');
+
+    res.json({
+      message: 'Admin properties retrieved successfully',
+      properties,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    });
+
+  } catch (error) {
+    console.error('Get admin properties error:', error);
+    res.status(500).json({
+      error: 'Failed to get admin properties',
+      message: 'An error occurred while retrieving admin properties'
+    });
+  }
+});
+
 // [ADMIN] Créer une propriété
 router.post('/admin', authenticateToken, requireAdmin, async (req, res) => {
   try {
