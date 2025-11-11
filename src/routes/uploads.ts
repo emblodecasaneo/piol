@@ -145,9 +145,11 @@ router.post(
       });
     }
 
-    const baseUrl =
-      process.env.UPLOAD_BASE_URL ||
-      `${req.protocol}://${req.get('host')}`;
+    // Utiliser UPLOAD_BASE_URL en production, sinon construire depuis la requête
+    const baseUrl = process.env.UPLOAD_BASE_URL || 
+      (process.env.NODE_ENV === 'production' 
+        ? 'https://piol.onrender.com'
+        : `${req.protocol}://${req.get('host')}`);
 
     const url = `${baseUrl}/uploads/properties/${req.file.filename}`;
 
@@ -173,9 +175,11 @@ router.post(
       });
     }
 
-    const baseUrl =
-      process.env.UPLOAD_BASE_URL ||
-      `${req.protocol}://${req.get('host')}`;
+    // Utiliser UPLOAD_BASE_URL en production, sinon construire depuis la requête
+    const baseUrl = process.env.UPLOAD_BASE_URL || 
+      (process.env.NODE_ENV === 'production' 
+        ? 'https://piol.onrender.com'
+        : `${req.protocol}://${req.get('host')}`);
 
     const files = req.files as Express.Multer.File[];
     const urls = files.map((file) => ({
