@@ -47,6 +47,13 @@ app.use(cors({
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "img-src": ["'self'", "data:", "https:", "*"],
+      "cross-origin-resource-policy": ["cross-origin"]
+    }
+  }
 })); // Security headers
 
 app.use(morgan('combined')); // Logging
@@ -78,8 +85,10 @@ if (!fs.existsSync(uploadsPath)) {
 // Middleware pour ajouter les headers CORS aux fichiers statiques
 app.use('/uploads', (req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.header('Cache-Control', 'public, max-age=31536000'); // Cache 1 an
   next();
 }, express.static(uploadsPath));
 
