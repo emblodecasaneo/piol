@@ -1102,6 +1102,14 @@ router.put('/admin/:id', authenticateToken, requireAdmin, async (req, res) => {
     if (updateData.longitude) updateData.longitude = parseFloat(updateData.longitude);
     if (updateData.type) updateData.type = updateData.type as PropertyType;
     if (updateData.availableFrom) updateData.availableFrom = new Date(updateData.availableFrom);
+    
+    // Gérer les champs spécifiques aux hôtels
+    if (updateData.totalRooms !== undefined) {
+      updateData.totalRooms = updateData.totalRooms ? parseInt(updateData.totalRooms) : null;
+    }
+    
+    // priceGrid est déjà un objet JSON, pas besoin de conversion si présent
+    // hotelServices est déjà un tableau, pas besoin de conversion si présent
 
     const updatedProperty = await prisma.property.update({
       where: { id },

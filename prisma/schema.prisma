@@ -24,6 +24,7 @@ enum PropertyType {
   APPARTEMENT
   MAISON
   DUPLEX
+  HOTEL
 }
 
 // Énumération pour le statut de vérification
@@ -55,6 +56,22 @@ enum AppointmentStatus {
   CANCELLED
 }
 
+// Énumération pour les statuts de réservation
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  REJECTED
+}
+
+enum ReservationTariff {
+  STANDARD
+  WEEKEND
+  PREMIUM
+  SUITE
+}
+
 // Modèle Utilisateur
 model User {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -78,6 +95,7 @@ model User {
   searches      SavedSearch[]
   requestedAppointments Appointment[] @relation("RequestedAppointments")
   payments      Payment[] @relation("UserPayments")
+  reservations  Reservation[]
 
   @@map("users")
 }
@@ -260,6 +278,15 @@ model Property {
   water         Boolean @default(false)
   electricity   Boolean @default(false)
   
+  // Champs spécifiques aux hôtels
+  pricePerNight Int? // Prix par nuit de base (pour les hôtels, null pour les autres)
+  maxGuests     Int? // Nombre maximum de personnes par chambre (hôtels)
+  checkInTime   String? // Heure d'arrivée (ex: "14:00")
+  checkOutTime  String? // Heure de départ (ex: "11:00")
+  totalRooms    Int? // Nombre total de chambres disponibles (pour hôtels)
+  priceGrid     Json? // Grille tarifaire: { "standard": 50000, "weekend": 65000, "highSeason": 80000, "lowSeason": 40000 }
+  hotelServices Json? // Services hôteliers: ["petit-dejeuner", "piscine", "spa", "wifi-gratuit", "service-chambre", "parking-gratuit"]
+  
   // Métadonnées
   images        String[] // URLs des images
   isAvailable   Boolean        @default(true)
@@ -279,6 +306,7 @@ model Property {
   reviews      Review[]
   messages     Message[]
   appointments Appointment[]
+  reservations Reservation[]
 
   @@map("properties")
 }
@@ -488,4 +516,55 @@ model ActiveSubscription {
   agent             Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@map("active_subscriptions")
+}
+
+// Modèle Réservation (pour les hôtels)
+model Reservation {
+  id            String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String            @db.ObjectId // Utilisateur qui réserve
+  propertyId    String            @db.ObjectId // Hôtel concerné
+  agentId       String            @db.ObjectId // Agent propriétaire de l'hôtel
+  status        ReservationStatus @default(PENDING)
+  
+  // Dates de séjour
+  checkInDate   DateTime          // Date d'arrivée
+  checkOutDate  DateTime          // Date de départ
+  nights        Int               // Nombre de nuits (calculé)
+  
+  // Détails de la réservation
+  tariff        ReservationTariff // Tarif choisi (STANDARD, WEEKEND, PREMIUM, SUITE)
+  guests        Int               // Nombre de personnes
+  pricePerNight Int               // Prix par nuit selon le tarif choisi
+  totalPrice    Int               // Prix total en FCFA (pricePerNight * nights)
+  
+  // Informations du client
+  guestName     String            // Nom du client
+  guestEmail    String            // Email du client
+  guestPhone    String            // Téléphone du client
+  specialRequests String?         // Demandes spéciales
+  
+  // Métadonnées
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  
+  // Relations
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property      Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("reservations")
+}
+
+// Modèle Services Hôteliers
+model HotelService {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  key         String   @unique // Clé unique: 'petit-dejeuner', 'piscine', etc.
+  label       String   // Libellé: 'Petit-déjeuner', 'Piscine', etc.
+  icon        String   // Nom de l'icône Ionicons: 'restaurant-outline', 'water-outline', etc.
+  description String?  // Description optionnelle
+  isActive    Boolean  @default(true) // Activer/désactiver le service
+  order       Int      @default(0) // Ordre d'affichage
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("hotel_services")
 }

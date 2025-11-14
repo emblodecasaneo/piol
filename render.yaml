@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: piol-backend
+    runtime: node
+    buildCommand: npm install && npm run build && npx prisma generate
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false  # Must be set manually in Render dashboard
+      - key: JWT_SECRET
+        sync: false  # Must be set manually in Render dashboard
+      - key: JWT_EXPIRES_IN
+        value: 7d
+    healthCheckPath: /api/health
+    plan: free
+

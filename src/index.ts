@@ -23,6 +23,9 @@ import uploadRoutes from './routes/uploads';
 import adminRoutes from './routes/admins';
 import subscriptionRoutes from './routes/subscriptions';
 import analyticsRoutes from './routes/analytics';
+import tenantRoutes from './routes/tenants';
+import reservationRoutes from './routes/reservations';
+import hotelServiceRoutes from './routes/hotel-services';
 
 // Load environment variables
 dotenv.config();
@@ -97,11 +100,14 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/agents', agentRoutes);
+app.use('/api/tenants', tenantRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/saved-searches', savedSearchRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/appointments', appointmentRoutes);
+app.use('/api/reservations', reservationRoutes);
+app.use('/api/hotel-services', hotelServiceRoutes);
 app.use('/api/neighborhood-scores', neighborhoodScoreRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/uploads', uploadRoutes);
