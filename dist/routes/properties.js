@@ -858,6 +858,9 @@ router.put('/admin/:id', auth_1.authenticateToken, auth_1.requireAdmin, async (r
             updateData.type = updateData.type;
         if (updateData.availableFrom)
             updateData.availableFrom = new Date(updateData.availableFrom);
+        if (updateData.totalRooms !== undefined) {
+            updateData.totalRooms = updateData.totalRooms ? parseInt(updateData.totalRooms) : null;
+        }
         const updatedProperty = await index_1.prisma.property.update({
             where: { id },
             data: updateData,
