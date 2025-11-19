@@ -645,9 +645,26 @@ router.put('/:id', authenticateToken, async (req, res) => {
       });
     }
 
+    const updateData = { ...req.body };
+
+    // Convertir les types si nécessaire (comme pour la route admin)
+    if (updateData.price !== undefined) updateData.price = parseInt(updateData.price);
+    if (updateData.deposit !== undefined) updateData.deposit = parseInt(updateData.deposit);
+    if (updateData.fees !== undefined) updateData.fees = updateData.fees ? parseInt(updateData.fees) : null;
+    if (updateData.bedrooms !== undefined) updateData.bedrooms = parseInt(updateData.bedrooms);
+    if (updateData.bathrooms !== undefined) updateData.bathrooms = parseInt(updateData.bathrooms);
+    if (updateData.area !== undefined) updateData.area = updateData.area ? parseInt(updateData.area) : null;
+    if (updateData.latitude !== undefined) updateData.latitude = updateData.latitude ? parseFloat(updateData.latitude) : null;
+    if (updateData.longitude !== undefined) updateData.longitude = updateData.longitude ? parseFloat(updateData.longitude) : null;
+    if (updateData.type) updateData.type = updateData.type as PropertyType;
+    if (updateData.availableFrom) updateData.availableFrom = new Date(updateData.availableFrom);
+
+    // Ne pas permettre de changer l'agentId (sécurité)
+    delete updateData.agentId;
+
     const updatedProperty = await prisma.property.update({
       where: { id },
-      data: req.body,
+      data: updateData,
       include: {
         agent: {
           include: {
@@ -671,11 +688,20 @@ router.put('/:id', authenticateToken, async (req, res) => {
       property: updatedProperty
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Update property error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      meta: error.meta,
+    });
+    
+    // Retourner un message d'erreur plus détaillé
+    const errorMessage = error.message || 'An error occurred while updating property';
     res.status(500).json({
       error: 'Failed to update property',
-      message: 'An error occurred while updating property'
+      message: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error : undefined
     });
   }
 });
